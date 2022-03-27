@@ -1,0 +1,330 @@
+---
+title: "Random Forests and Boosted Regression Trees - Homework"
+author: 'GROUP 4: Leonard Fidlin (h01352705), Daniel Jost (h01451889), Anne Valder
+  (h11928415)'
+output:
+  html_document:
+    toc: yes
+    toc_depth: 2
+    number_sections: no
+subtitle: Data Science and Machine Learning 2187 & 2087
+editor_options:
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(include = TRUE)
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(fig.align = 'center')
+
+```
+
+<br>
+
+**Please use the corresponding R Markdown file to save your results in an HTML file. Then upload the HTML file to learn.wu.ac.at.**
+
+<br>
+
+
+# Input data
+
+**Install and load the required packages.**
+
+```{r, echo=TRUE, results='hide', warning=FALSE, message=FALSE}
+# Load packages
+library(plyr)
+library(tidyverse)
+library(data.table)
+library(fst)
+library(ranger)
+library(tuneRanger)
+library(xgboost)
+library(caret)
+library(viridis)
+```
+
+**Adjust the data path and load the input data. Set wd before to use the relative path to the data. Read input data on municipal level for the whole country and read input data on grid level for the Quindío.**
+
+```{r}
+data_path = "."
+
+col_input = read_fst(file.path(data_path, "data", "colombia_input.fst"))
+
+quindio_grid = read_fst(file.path(data_path, "data", "quindio_input_grid.fst"))
+```
+
+# Data Visualization and Exploratory Data Analysis
+
+## Exercise 1
+
+**Use the input data for Colombia on the municipal level (colombia_input.fst) for this exercise.**
+
+### 1.1
+
+**Create a plot that shows the distribution of the population density (raster_pop_100). Briefly describe what you see.**
+
+```{r warning=FALSE}
+col_input %>% 
+  ggplot(aes(x=raster_pop_100)) +
+  geom_histogram(binwidth = 0.5) +
+  labs(title = "Distribution of population density per municipality in Columbia", x = "Population density (inhabitants per hectare)", y = "Number of municipalities") +
+  theme_classic()
+
+col_input %>% 
+  summarize(mean(raster_pop_100, na.rm = T), median(raster_pop_100, na.rm = T))
+```
+
+As can be seen in the plot, most grids have a rather low population density (below 10 inhabitants per 100m^2). In fact half of the grids have a population density below 0.44 inhabitants per 100m^2. To better visualize the distribution close to the origin we limit the scale of the x-axis to 10.
+
+```{r warning=FALSE}
+col_input %>% 
+  ggplot(aes(x=raster_pop_100)) +
+  geom_histogram(binwidth = 0.05)  +
+  scale_x_continuous(limit = c(0,10)) +
+  labs(title = "Distribution of population density per municipality in Columbia", x = "Population density (inhabitants per hectare)", y = "Number of municipalities") +
+  theme_classic()
+```
+
+Here we can better see the distribution of the population density close to the origin (but do not see grids with a population density above 10 inhabitants per hectare)
+
+### 1.2
+
+**Create a plot that visualizes the relationship between the population density (raster_pop_100) and the light intensity recorded at night (night_lights_100). Combine two suitable geom functions in one plot. Briefly describe what you see.**
+
+```{r}
+col_input %>% 
+  ggplot(aes(x=raster_pop_100, y=night_lights_100, color = night_lights_100)) + 
+  geom_point() + 
+  geom_smooth(color = "darkgrey") +
+  scale_color_continuous("Light", labels = NULL, breaks = 0) +
+  labs(title = "Relationship of population density and light intensity at night", x = "Population density (inhabitants per hectare)", y = "Light at night") +
+  theme_classic()
+```
+
+As expected, this plot suggests a positive and non-linear relationship of population density and night lights at the grid level. On average, a higher population density correlates with more light at night.
+
+## Exercise 2
+
+**Use the grid-level input data for Quindío (quindio_input_grid.fst) for this exercise.**
+
+### 2.1
+
+**Create a plot that shows the distribution of the light intensity at night (night_lights_100). Include information on whether or not a grid lies inside a protected area (protected_areas_100). Briefly describe what you see.**
+
+**Hint: Transform the variable protected_areas_100 to character inside the ggplot or the geom function.**
+
+```{r, warning=FALSE}
+quindio_grid %>% 
+  ggplot(aes(x=night_lights_100, fill = as.character(protected_areas_100))) +
+  geom_histogram(binwidth = 0.3)  +
+  scale_x_continuous(limits = c(0,20)) +
+  scale_y_continuous(limits = c(0,10000)) +
+  scale_fill_discrete(name = element_blank(), labels = c("Unprotected area", "Protected area")) +
+  labs(title = "Distribution of population density per municipality in Columbia", x = "Population density (inhabitants per hectare)", y = "Number of municipalities") +
+  theme_classic()
+```
+
+We can see that in protected areas there is also less night lights density. Furthermore, and unsurprisingly the distribution of night lights in protected areas looks similar to that of unprotected areas, being included within the other category.
+
+### 2.2
+
+**Create a plot that visualizes the relationship between the light intensity at night (night_lights_100) and the slope (hydro_slo_100). What could be a problem with a standard scatterplot? Try to solve this issue and briefly describe what you see.**
+
+```{r}
+plot(quindio_grid$night_lights_100, quindio_grid$hydro_slo_100)
+
+quindio_grid %>% 
+  ggplot(aes(x=night_lights_100,y = hydro_slo_100, color = night_lights_100)) + 
+  geom_point() +
+  scale_color_continuous("Light", labels = NULL, breaks = 0) +
+  labs(title = "Relationship of light intensity at night and the slope", x = "Light at night", y = "Slope") +
+  theme_classic()
+```
+
+Both the base R and the ggplot standard scatterplot do not adequately visualize the distribution since the size of our dataset is very large. The reason for this is that points can begin to overplot and pile up into areas of uniform black/ blue. This is why we reduce the size of the data points and adjust their transparancy using the alpha aesthetic.
+
+```{r}
+quindio_grid %>% 
+  ggplot(aes(x=night_lights_100,y = hydro_slo_100, color = night_lights_100)) + 
+  geom_point(alpha = 1/10, size = 0.5) +
+  scale_color_continuous("Light", labels = NULL, breaks = 0) +
+  labs(title = "Relationship of light intensity at night and the slope", x = "Light at night", y = "Slope") +
+  theme_classic()
+```
+
+Now we can see that in high slope areas there are also mostly fewer night lights. We can see that night light dense areas tend to be flat. Reducing the size of the data points and their transparency indicates that there are obviously outliers, but they are much less prominent in the data.
+
+# Random Forests and Boosted Regression Trees
+
+## Exercise 3
+
+### 3.1
+
+**Use the input data for Colombia on the municipal level (colombia_input.fst) to train a Random Forest. Use the log of the population density (raster_pop_100) as the dependent variable. Tune one of the parameters in the Random Forest. Briefly describe the parameter you are tuning and explain why you have decided for this parameter.**
+
+First, we want to use the the `col_input` data for all the estimations and tuning and then use `quindio_grid` for the predictions. Because once we find a good tuned random forest and boosted regression tree, we use the grid level data to estimate population density on the grid level. We begin by removing the first column in `col_input` containing the geocode. We can not use it for estimation because it cannot help explain population density.
+
+```{r}
+col_input <- col_input[,2:76]
+```
+
+We are taking the log of the dependent variable because as was shown in class/publications this works better for estimations on population density
+```{r}
+col_input[,1] = log(col_input[,1])
+```
+
+Since we want to tune the parameters we do not use the ranger function but a combination of the ranger and caret package. Alternatively we could also use the `tune_ranger` approach. The first step is to specify the type of cross validation we wan to do and the number of folds.  
+```{r}
+control = trainControl(method = "cv", number = 5) 
+```
+
+Next, we need a tuning grid, for which we specify the parameter we want to tune and the corresponding values which should be inspected. With caret and the ranger package we have 3 different parameters, which we can tune: `mtry`, the `splitrule` and the `min-nod-size`. Following the lecture we decide that `mtry` is most important and should therefore be tuned. `mtry` is the number of variables used by rf to split the tree, and it cannot be less than one or more than the number of columns of predictors. As the criterion to be used to find the optimal split points we use variance. The minimal number of observations that are associated with each leave node has to be at least 1, since at least one observation has to be in each leaf node.
+
+Considering the trade-off between how much parameters we want to try out and the time used to calculate the random forest, we decided to alter the maximum value for the sequence in `mtry` and the the number of `min.node.size` by 1, compared to the model in class, to obtain a tuning grid with 35 instead of 9 observations of 3 variables. This gives us a better chance of finding an even better final model. 
+
+```{r}
+tuning_grid = expand.grid(mtry = seq(20,50, by = 5), splitrule = "variance", min.node.size = seq(1, 5, by = 1))
+head(tuning_grid)
+```
+We now use caret and ranger to optimize the model and tune the parameters. We also include the model's importance scores, which check how important each variable is in explaining our dependent variable.
+
+```{r}
+rf_caret = train(data = col_input, raster_pop_100 ~ ., method = "ranger", trControl = control, tuneGrid = tuning_grid, importance = "impurity")
+
+rf_caret
+rf_1 = rf_caret$finalModel
+```
+
+From the output of the caret training we chose the model with the smallest root-mean-square error (RMSE) since this is the best one. In this case it is the model with `mtyr = 35`. Then we save the final model from the caret package.  
+
+Alternatively, we can use the tuneRanger package to to tune some of the parameters in the Random forest. For this approach we first have to create a regression/classification task, including the specification of the data set and the dependent variable. 
+
+```{r, warning=FALSE, message=FALSE}
+reg_task <- makeRegrTask(data = col_input, target = "raster_pop_100")
+estimateTimeTuneRanger(reg_task)
+
+rf_tr = tuneRanger(task = reg_task)
+rf_tr
+
+rf_tr$recommended.pars
+rf_2 = rf_tr$model
+```
+
+First, we load the tuneRanger package to the library. Second, we create a regression and then use tungRanger to tune the parameters. The default includes tuning `mtry`, `min.node.size` and `sample.fraction`. If we would also wanted to tune other parameters we would simply had to add them using `tune.parameters()` in the tuneRanger function. Before running the tuneRanger function we get an estimate of how long the tuning process will take (17M 58S). After the tuning is finished we see that the factors chosen are: `mytr = 26`, `min.node.size = 3`, `sample.fraction = 0.8590`. Again, we extract the final model and save it.
+
+### 3.2
+
+**Use the best Random Forest model from the tuning exercise to make a prediction of the grid-level population density in Quindío. Make sure that the sums of the grid-level predictions match the official numbers on the municipal level.**
+
+The Random Forest model can now be used to make a prediction. We will use grid-level data from Quindio, to estimate the city’s grid-level population density. First, we look at the variables in our data set. We use the columns with the explanatory variables in our Random Forest models to create predictions.
+
+```{r}
+pred_rf_1 = predict(rf_1, data = quindio_grid [,5:78])
+pred_rf_2 = predict(rf_2, newdata = quindio_grid [,5:78])
+```
+
+First, we only use the columns with the explanatory variables this is why we specify columns 5 to 78. The predictions look a bit different since the first Random Forest are saved in a Ranger object and the second in a WrappedModel.                 
+To use the predictions for plots or analyses we first have to take the exponent, to reverse taking the log before the estimations. Moreover, we can combine them with information from the input data, like the coordinates of the corresponding grids, the geocodes, and the initial values of the average population density.
+
+```{r}
+pred_rf_1 = cbind(quindio_grid[,1:4], exp(pred_rf_1$predictions))
+pred_rf_2 = cbind(quindio_grid[,1:4], exp(pred_rf_2$data))
+
+names(pred_rf_1) = c(names(quindio_grid[1:4]), "rf_1")
+names(pred_rf_2) = c(names(quindio_grid[1:4]), "rf_2")
+```
+
+Finally, we rescale our numbers to the census data, making sure that in total our predictions match the official number on the municipal level.
+
+```{r}
+pred_rf_1 = data.table(pred_rf_1)[, rf_1 := rf_1*sum(raster_pop_100)/sum(rf_1), by = raster_geocode_100]
+
+pred_rf_2 = data.table(pred_rf_2)[, rf_2 := rf_2*sum(raster_pop_100)/sum(rf_2), by = raster_geocode_100]
+```
+
+To compare the fit of the alternative (Random Forest based on ranger and tuneRanger) to our previous version (Random forest based caret and ranger) we look at the prediction errors. We see that the MSE of the Random Forest based on ranger and tuneRanger is slightly smaller (0.1852 vs. 0.1926) and therefore this version performs better. Another option to compare performances would be to look at the variable importances.
+
+```{r}
+rf_1$prediction.error
+
+(min(rf_tr$results$mse))
+```
+
+## Exercise 4
+
+### 4.1
+
+**Use the input data for Colombia on the municipal level (colombia_input.fst) to train a Boosted Regression Tree. Use the log of the population density (raster_pop_100) as the dependent variable. Tune one of the parameters in the Boosted Regression Tree. Briefly describe the parameter you are tuning and explain why you have decided for this parameter.**
+
+To optimize and tune the model we combine the packages caret and xgboost. Again, we start this process by specifying which type of cross validation and number of folds we are interested in. The dependent variable is already in logs from the exercise before. 
+
+```{r}
+control = trainControl(method = "cv", number = 5)
+```
+
+Then we create a tuning grid, setting the parameters that we want to tune and the corresponding values that should be tried out. Here we can tune many different parameters. But again because of the time trade-off we only alter the `nrounds` (= maximum number of boosting iterations that should be done to create boosted regression tree), `eta` (= the learning rate between 0 and 1, which with lower values create a model that is more resistant to overfitting and therefore better) and `gamma` (= the minimum loss reduction that we then used to evaluate whether we want another split or not) - 60 models instead of 27.
+```{r}
+tuning_grid = expand.grid(nrounds = seq(50, 150, by = 25), max_depth = 6, eta = seq(0.1, 0.4, by = 0.1), gamma = seq(0.01, 0.03, by = 0.01), colsample_bytree = 1, min_child_weight = 1, subsample = 1)
+
+head(tuning_grid)
+```
+
+Then we combine the packages caret and xgboost to optimize the model doing extreme gradient boosting (using all variables as explanatory variables).
+```{r,results='hide', message= FALSE, warning=FALSE}
+
+gb_caret = train(data = col_input, raster_pop_100 ~ ., method = "xgbTree", trControl = control, tuneGrid = tuning_grid)
+```
+
+```{r,message=FALSE, warning=FALSE}
+gb_caret
+gb_1 = gb_caret$finalModel
+min(gb_caret$results$RMSE)^2
+```
+Again, we choose the model with the smallest RMSE, extract it and save it. The final values used for the model were `nrounds = 150`, `max_depth = 6`, `eta = 0.1`, `gamma = 0.03`, `colsample_bytree = 1`, `min_child_weight = 1` and `subsample = 1`. To compare the performance of all models we compute again the RMSE.
+
+### 4.2
+
+**Use the best Boosted Regression Tree model from the tuning exercise to make a prediction of the grid-level population density in Quindío. Make sure that the sums of the grid-level predictions match the official numbers on the municipal level.**
+
+We can again use the columns with the explanatory variables [,5:78] in our data from the Quinido grid level data set to create predictions of grid level population density in Quinido. We take the exponent and combine the predictions with data on the coordinates of the grids, the geocodes, and the initial values of the average population density. Also we adjust the names and in the end make sure that in total our predictions match the official number on the municipal level.
+```{r}
+pred_gb_1 = predict(gb_1, newdata = as.matrix(quindio_grid[,5:78]))
+
+pred_gb_1 = cbind(quindio_grid[,1:4], exp(pred_gb_1))
+
+names(pred_gb_1) = c(names(quindio_grid[1:4]), "gb_1") 
+
+pred_gb_1 = data.table(pred_gb_1)[, gb_1 := gb_1*sum(raster_pop_100)/sum(gb_1), by = raster_geocode_100]
+```
+# Visualization of Results
+
+## Exercise 5
+
+**Create a plot showing the following three maps of the population density in Quindío side by side: one based on the input data, one based on your Random Forest prediction, and one based on your Boosted Regression Tree prediction. Try to make sure that the maps give a good picture of the differences in population density, both between the different data sets as well as between the different parts of the department.**
+
+First, we combined all predictions in one data frame to create one plot with all the predictions together to better compare the different predictions. Then we transformed the data set from wide to long format since then plotting in ggplot2 is easier. In order to show the four maps of the population density in Quindío in the order we executed the estimation they have to be reordered. Since `rf_2` the Random Forest based on ranger and tuneRanger performed slyightly better we only use `rf_2` in the plot. 
+
+```{r}
+
+pred_all = join_all(list(pred_rf_2, pred_gb_1), by = c("x", "y", "raster_geocode_100", "raster_pop_100"))
+
+pred_all = pivot_longer(pred_all, cols = c(raster_pop_100, rf_2, gb_1), names_to = "method", values_to = "prediction")
+
+pred_all$facet = factor(pred_all$method, levels = c("raster_pop_100","rf_2", "gb_1"))
+
+ggplot() +
+    geom_raster(pred_all,mapping = aes(x = x ,y = y, fill = prediction)) +
+    coord_fixed() +
+    scale_fill_viridis(option ="B", trans = "log", breaks = c(3, 20, 150)) +
+    scale_x_continuous(breaks = NULL) +
+    scale_y_continuous(breaks = NULL) +
+    facet_wrap(~ facet, nrow = 1) +
+    labs(title = "Comparison of different maps of the popultation density", x = "", y = "") +
+  theme_minimal()
+
+```
+
+We can see that mapping on the grid level with `rf_2` and `gb_1` gives us a better idea of the population density on a more granular level. In the `raster_pop_100` map we can only observe the overall pop-density per municipality. For example in the southern part we see there is some higher population density we did not see before when just looking at population density on the municipal level. We can conclude that the population density is the highest in the upper center of Quindio. From the earlier calculated RMSE we can tell that `rf_2` is the model with the best performance.
+
+***

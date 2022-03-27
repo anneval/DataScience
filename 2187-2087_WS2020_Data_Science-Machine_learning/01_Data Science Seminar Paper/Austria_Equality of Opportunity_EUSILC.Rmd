@@ -1,0 +1,790 @@
+---
+title: "Equality of Opportunity Seminar Paper"
+author: "Leonard Fidlin, Daniel Jost, Anne Valder"
+date: "14 1 2021"
+bibliography: bibliography.bib
+output: 
+  html_document:
+    toc: true
+    toc_depth: 2
+    number_sections: false
+subtitle: Data Science and Machine Learning 2187 & 2087
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(include = TRUE)
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(error = TRUE)
+knitr::opts_chunk$set(fig.align = 'center')
+```
+
+# **Introduction**
+In this part of the seminar paper, we attempt to reproduce the findings of [@brunori20], but unfortunately we do not have access to the actual EU-SILC data from 2011. Instead we reproduce the findings using the synthetic data provided by the European office of statistics (Eurostat) (https://ec.europa.eu/eurostat/web/microdata/statistics-on-income-and-living-conditions). 
+```{r echo=T, message=FALSE, error=FALSE, warning=FALSE}
+library(rpart)
+library(rpart.plot) 
+library(caret)       
+library(party)
+library(partykit) #Ctree
+library(ggparty)
+library(tidyverse)
+library(RColorBrewer)
+library(knitr)
+library(knitcitations); cleanbib()
+cite_options(citation_format = "pandoc", check.entries=FALSE)
+library(bibtex)
+library(readr)
+library(summarytools)
+```
+# **Data Wrangling**
+The original data is not provided as the EU protects the privacy of the original respondents. The idea of the public microdata, is that it allows us to train and write the code using the actual variable names, but not obtaining true results. The EU-SILC public microdata files are fully synthetic and they were simulated using statistical modeling and show the statistical distributions of the original data. The main caveats of this data are, that it cannot be used for statistical inference to the wider population. The results and conclusion obtained from this public microdata are to be taken with a big grain of salt. Luckily, the individual country datasets are grouped in a coherent manner.
+We use the EU-SILC data from 2011 as it was the survey when additionally there were questions on inter-generational transmission. These were questions about the parents of the respondents. We want to see, whether it is possible using only circumstantial information given about the parents and respondents to predict the income of the respondents.
+
+The unique identifier used in all  four data sets is the household ID identifier: RX030 in the Personal Register, PX030 in the Personal Data, DB030 in the Household Register, and HB030 in the Household Data file. We only need to combine two of the datasets, namely the Household Register and the Personal Data. Latter contains the Ad-hoc module with the questions on intergenerational characteristics.
+
+Following [@brunori20] we use the following variables for circumstances: Respondent's sex (PB150), Respondent's country of birth (Citizenship as proxy - PB220A), Presence of parents at home (PT010), Number of adults (18 or older) in respondents household (PT020), Number of working adults (18 or older) in respondents household (PT030), Father/Mother country of birth and citizenship (PT060, PT070, PT090, PT100), Father/mother education (PT110, PT120), Father/mother occupational status (PT130, PT160), Father/mother main occupation (PT150,PT180), Managerial position of father/mother(PT140,PT170), Tenancy status of the house in which respondent was living as a child (PT210).
+
+Outcome Variables i.e. Income: Total Household gross income (HY010), Total Disposable Income (HY020), Dwelling Type (HH010), Housing (HH030). 
+
+We first use more variables than ultimately used in the analysis. We use the year of birth to calculate the age, and then exclude everyone older than 60 or younger than 27, as was done in the paper we are referring to. We first included both monthly and annual gross income. But in this cross-country analysis we use annual gross income as our outcome variable. 
+
+At first we ran the analysis with the citizenship variable included, but we ultimately decided that it is not really a circumstantial variable as Respondents country of birth would have been. Since it is utltimately possible to obtain a new citizenship. 
+
+```{r echo=T, message=FALSE, error=FALSE, warning=FALSE}
+# setting the data path
+data_path ="./SILC_2011"
+getwd()
+
+# accessing the data
+AT_personal_data <- read.csv(file.path(data_path, "AT_2011p_EUSILC.csv"))
+AT_household_data <- read.csv(file.path(data_path, "AT_2011h_EUSILC.csv"))
+
+# change the name of the identifier variable
+AT_household_data <- AT_household_data %>% rename("PX030" = HB030)
+
+# joining the data
+AT_equality_data <- AT_personal_data %>%  left_join(AT_household_data, by = "PX030")
+
+# Renaming important variables for readability of tree
+AT_equality_data <- AT_equality_data %>% select(
+  PB140, HY010, PB150, PB220A, PT010, PT020, PT030, PT060, PT070, PT090, PT100, PT110, PT120, PT130, PT160, PT150, PT180, PT140, PT170, PT210, PY200G) %>% mutate(
+    age = (2011 - PB140), log_income = log(HY010 + 1)
+  ) %>% filter(
+    age %in% (27:59)
+  ) %>% mutate(
+    citizenship = factor(PB220A, labels = c(1,2,3))
+  ) %>% 
+  rename(
+    "year_of_birth" = PB140,
+    "annual_income" = HY010,
+    "sex" = PB150,
+    "parents_present" = PT010,
+    "adults_home" = PT020,
+    "children_home" = PT030,
+    "father_cob" = PT060,
+    "father_cit" = PT070,
+    "mother_cob" = PT090,
+    "mother_cit" = PT100,
+    "father_edu" = PT110,
+    "mother_edu" = PT120,
+    "father_occup_stat" = PT130,
+    "mother_occup_stat" = PT160,
+    "father_occup" = PT150,
+    "mother_occup" = PT180,
+    "father_manag" = PT140,
+    "mother_manag" = PT170,
+    "tenancy" = PT210,
+    "monthly_income" = PY200G)
+```                                                                                                                                           
+*Summary*
+We provide the summary statistics for Austria, which we obtained using the 'dfsummary' from the package 'summarytools'. Similar to the 2019 dataset the 'AT_equality_data' does contain almost 7000 observations and no missing entries in our outcome variable annual income. However, it does contain many missing values across the observed circumstances. We chose to not exclude those and deal with these missing entries using the 'na.action = na.omit' command when doing the statistical analysis.
+```{r echo=T, message=FALSE, error=FALSE, warning=FALSE}
+
+print(dfSummary(AT_equality_data), method="render")
+
+```
+
+```{r echo=T, message=FALSE, error=FALSE, warning=FALSE}
+# Here we repeat the Data Wrangling steps for other EU Member States
+# France
+FR_personal_data <- read.csv(file.path(data_path, "FR_2011p_EUSILC.csv"))
+FR_household_data <- read.csv(file.path(data_path, "FR_2011h_EUSILC.csv"))
+FR_household_data <- FR_household_data %>% rename("PX030" = HB030)
+FR_equality_data <- FR_personal_data %>%  left_join(FR_household_data, by = "PX030")
+
+FR_equality_data <- FR_equality_data %>% select(
+  PB140, HY010, PB150, PB220A, PT010, PT020, PT030, PT060, PT070, PT090, PT100, PT110, PT120, PT130, PT160, PT150, PT180, PT140, PT170, PT210, PY200G) %>% mutate(
+    age = (2011 - PB140), log_income = log(HY010 + 1)
+  ) %>% filter(
+    age %in% (27:59)
+  ) %>% mutate(
+    citizenship = factor(PB220A, labels = c(1,2,3))
+  ) %>% 
+  rename(
+    "year_of_birth" = PB140,
+    "annual_income" = HY010,
+    "sex" = PB150,
+    "parents_present" = PT010,
+    "adults_home" = PT020,
+    "children_home" = PT030,
+    "father_cob" = PT060,
+    "father_cit" = PT070,
+    "mother_cob" = PT090,
+    "mother_cit" = PT100,
+    "father_edu" = PT110,
+    "mother_edu" = PT120,
+    "father_occup_stat" = PT130,
+    "mother_occup_stat" = PT160,
+    "father_occup" = PT150,
+    "mother_occup" = PT180,
+    "father_manag" = PT140,
+    "mother_manag" = PT170,
+    "tenancy" = PT210,
+    "monthly_income" = PY200G)
+# Denmark
+DK_personal_data <- read.csv(file.path(data_path, "DK_2011p_EUSILC.csv"))
+DK_household_data <- read.csv(file.path(data_path, "DK_2011h_EUSILC.csv"))
+DK_household_data <- DK_household_data %>% rename("PX030" = HB030)
+DK_equality_data <- DK_personal_data %>%  left_join(DK_household_data, by = "PX030")
+
+DK_equality_data <- DK_equality_data %>% select(
+  PB140, HY010, PB150, PB220A, PT010, PT020, PT030, PT060, PT070, PT090, PT100, PT110, PT120, PT130, PT160, PT150, PT180, PT140, PT170, PT210, PY200G) %>% mutate(
+    age = (2011 - PB140), log_income = log(HY010 + 1)
+  ) %>% filter(
+    age %in% (27:59)
+  ) %>% mutate(
+    citizenship = factor(PB220A, labels = c(1,2,3))
+  ) %>% 
+  rename(
+    "year_of_birth" = PB140,
+    "annual_income" = HY010,
+    "sex" = PB150,
+    "parents_present" = PT010,
+    "adults_home" = PT020,
+    "children_home" = PT030,
+    "father_cob" = PT060,
+    "father_cit" = PT070,
+    "mother_cob" = PT090,
+    "mother_cit" = PT100,
+    "father_edu" = PT110,
+    "mother_edu" = PT120,
+    "father_occup_stat" = PT130,
+    "mother_occup_stat" = PT160,
+    "father_occup" = PT150,
+    "mother_occup" = PT180,
+    "father_manag" = PT140,
+    "mother_manag" = PT170,
+    "tenancy" = PT210,
+    "monthly_income" = PY200G)
+# Spain
+ES_personal_data <- read.csv(file.path(data_path, "ES_2011p_EUSILC.csv"))
+ES_household_data <- read.csv(file.path(data_path, "ES_2011h_EUSILC.csv"))
+ES_household_data <- ES_household_data %>% rename("PX030" = HB030)
+ES_equality_data <- ES_personal_data %>%  left_join(ES_household_data, by = "PX030")
+
+ES_equality_data <- ES_equality_data %>% select(
+  PB140, HY010, PB150, PB220A, PT010, PT020, PT030, PT060, PT070, PT090, PT100, PT110, PT120, PT130, PT160, PT150, PT180, PT140, PT170, PT210, PY200G) %>% mutate(
+    age = (2011 - PB140), log_income = log(HY010 + 1)
+  ) %>% filter(
+    age %in% (27:59)
+  ) %>% mutate(
+    citizenship = factor(PB220A, labels = c(1,2,3))
+  ) %>% 
+  rename(
+    "year_of_birth" = PB140,
+    "annual_income" = HY010,
+    "sex" = PB150,
+    "parents_present" = PT010,
+    "adults_home" = PT020,
+    "children_home" = PT030,
+    "father_cob" = PT060,
+    "father_cit" = PT070,
+    "mother_cob" = PT090,
+    "mother_cit" = PT100,
+    "father_edu" = PT110,
+    "mother_edu" = PT120,
+    "father_occup_stat" = PT130,
+    "mother_occup_stat" = PT160,
+    "father_occup" = PT150,
+    "mother_occup" = PT180,
+    "father_manag" = PT140,
+    "mother_manag" = PT170,
+    "tenancy" = PT210,
+    "monthly_income" = PY200G)
+# Finland
+FI_personal_data <- read.csv(file.path(data_path, "FI_2011p_EUSILC.csv"))
+FI_household_data <- read.csv(file.path(data_path, "FI_2011h_EUSILC.csv"))
+FI_household_data <- FI_household_data %>% rename("PX030" = HB030)
+FI_equality_data <- FI_personal_data %>%  left_join(FI_household_data, by = "PX030")
+
+FI_equality_data <- FI_equality_data %>% select(
+  PB140, HY010, PB150, PB220A, PT010, PT020, PT030, PT060, PT070, PT090, PT100, PT110, PT120, PT130, PT160, PT150, PT180, PT140, PT170, PT210, PY200G) %>% mutate(
+    age = (2011 - PB140), log_income = log(HY010 + 1)
+  ) %>% filter(
+    age %in% (27:59)
+  ) %>% mutate(
+    citizenship = factor(PB220A, labels = c(1,2,3))
+  ) %>% 
+  rename(
+    "year_of_birth" = PB140,
+    "annual_income" = HY010,
+    "sex" = PB150,
+    "parents_present" = PT010,
+    "adults_home" = PT020,
+    "children_home" = PT030,
+    "father_cob" = PT060,
+    "father_cit" = PT070,
+    "mother_cob" = PT090,
+    "mother_cit" = PT100,
+    "father_edu" = PT110,
+    "mother_edu" = PT120,
+    "father_occup_stat" = PT130,
+    "mother_occup_stat" = PT160,
+    "father_occup" = PT150,
+    "mother_occup" = PT180,
+    "father_manag" = PT140,
+    "mother_manag" = PT170,
+    "tenancy" = PT210,
+    "monthly_income" = PY200G)
+# Italy
+IT_personal_data <- read.csv(file.path(data_path, "IT_2011p_EUSILC.csv"))
+IT_household_data <- read.csv(file.path(data_path, "IT_2011h_EUSILC.csv"))
+IT_household_data <- IT_household_data %>% rename("PX030" = HB030)
+IT_equality_data <- IT_personal_data %>%  left_join(IT_household_data, by = "PX030")
+
+IT_equality_data <- IT_equality_data %>% select(
+  PB140, HY010, PB150, PB220A, PT010, PT020, PT030, PT060, PT070, PT090, PT100, PT110, PT120, PT130, PT160, PT150, PT180, PT140, PT170, PT210, PY200G) %>% mutate(
+    age = (2011 - PB140), log_income = log(HY010 + 1)
+  ) %>% filter(
+    age %in% (27:59)
+  ) %>% mutate(
+    citizenship = factor(PB220A, labels = c(1,2,3))
+  ) %>% 
+  rename(
+    "year_of_birth" = PB140,
+    "annual_income" = HY010,
+    "sex" = PB150,
+    "parents_present" = PT010,
+    "adults_home" = PT020,
+    "children_home" = PT030,
+    "father_cob" = PT060,
+    "father_cit" = PT070,
+    "mother_cob" = PT090,
+    "mother_cit" = PT100,
+    "father_edu" = PT110,
+    "mother_edu" = PT120,
+    "father_occup_stat" = PT130,
+    "mother_occup_stat" = PT160,
+    "father_occup" = PT150,
+    "mother_occup" = PT180,
+    "father_manag" = PT140,
+    "mother_manag" = PT170,
+    "tenancy" = PT210,
+    "monthly_income" = PY200G)
+# # Bulgaria
+# BG_personal_data <- read.csv(file.path(data_path, "BG_2011p_EUSILC.csv"))
+# BG_household_data <- read.csv(file.path(data_path, "BG_2011h_EUSILC.csv"))
+# BG_household_data <- BG_household_data %>% rename("PX030" = HB030)
+# BG_equality_data <- BG_personal_data %>%  left_join(BG_household_data, by = "PX030")
+# 
+# BG_equality_data <- BG_equality_data %>% select(
+#   PB140, HY010, PB150, PB220A, PT010, PT020, PT030, PT060, PT070, PT090, PT100, PT110, PT120, PT130, PT160, PT150, PT180, PT140, PT170, PT210, PY200G) %>% mutate(
+#     age = (2011 - PB140), log_income = log(HY010 + 1)
+#   ) %>% filter(
+#     age %in% (27:59)
+#   ) %>% mutate(
+#     citizenship = factor(PB220A, labels = c(1,2,3))
+#   ) %>% 
+#   rename(
+#     "year_of_birth" = PB140,
+#     "annual_income" = HY010,
+#     "sex" = PB150,
+#     "parents_present" = PT010,
+#     "adults_home" = PT020,
+#     "children_home" = PT030,
+#     "father_cob" = PT060,
+#     "father_cit" = PT070,
+#     "mother_cob" = PT090,
+#     "mother_cit" = PT100,
+#     "father_edu" = PT110,
+#     "mother_edu" = PT120,
+#     "father_occup_stat" = PT130,
+#     "mother_occup_stat" = PT160,
+#     "father_occup" = PT150,
+#     "mother_occup" = PT180,
+#     "father_manag" = PT140,
+#     "mother_manag" = PT170,
+#     "tenancy" = PT210,
+#     "monthly_income" = PY200G)
+# Latvia
+LV_personal_data <- read.csv(file.path(data_path, "LV_2011p_EUSILC.csv"))
+LV_household_data <- read.csv(file.path(data_path, "LV_2011h_EUSILC.csv"))
+LV_household_data <- LV_household_data %>% rename("PX030" = HB030)
+LV_equality_data <- LV_personal_data %>%  left_join(LV_household_data, by = "PX030")
+
+LV_equality_data <- LV_equality_data %>% select(
+  PB140, HY010, PB150, PB220A, PT010, PT020, PT030, PT060, PT070, PT090, PT100, PT110, PT120, PT130, PT160, PT150, PT180, PT140, PT170, PT210, PY200G) %>% mutate(
+    age = (2011 - PB140), log_income = log(HY010 + 1)
+  ) %>% filter(
+    age %in% (27:59)
+  ) %>% mutate(
+    citizenship = factor(PB220A, labels = c(1,2,3))
+  ) %>% 
+  rename(
+    "year_of_birth" = PB140,
+    "annual_income" = HY010,
+    "sex" = PB150,
+    "parents_present" = PT010,
+    "adults_home" = PT020,
+    "children_home" = PT030,
+    "father_cob" = PT060,
+    "father_cit" = PT070,
+    "mother_cob" = PT090,
+    "mother_cit" = PT100,
+    "father_edu" = PT110,
+    "mother_edu" = PT120,
+    "father_occup_stat" = PT130,
+    "mother_occup_stat" = PT160,
+    "father_occup" = PT150,
+    "mother_occup" = PT180,
+    "father_manag" = PT140,
+    "mother_manag" = PT170,
+    "tenancy" = PT210,
+    "monthly_income" = PY200G)
+
+```
+
+```{r echo=T, message=FALSE, error=FALSE, warning=FALSE}
+
+print(dfSummary(FR_equality_data), method="render")
+
+
+print(dfSummary(DK_equality_data), method="render") #We have maybe too many missing values for Denmark
+
+
+print(dfSummary(ES_equality_data), method="render")
+
+
+print(dfSummary(FI_equality_data), method="render") #We have maybe too many missing values for Finland
+
+
+print(dfSummary(IT_equality_data), method="render")
+
+
+print(dfSummary(LV_equality_data), method="render")
+
+```
+
+# **Method**: Conditional Inference Trees
+
+* `ctree` from party package in R
+* recursive partitioning just like `rpart`
+* `rpart`: maximizing an information measure
+* `ctree`: significance test procedure
+
+### Advantages
+
+**Advantages of Trees:** straightforward to interpret
+
+**Advantages of Trees over linear regression models:** very large set of observations can be used & model speciﬁcation is no longer exogenously given
+
+**Advantages of Conditional Inference Trees over Regression and Classification Trees (CART):** the algorithm automatically provides a test for the null hypothesis of equality of opportunity & prevents overfitting while CART "cannot distinguish between a significant and an insignificant improvement in the information measure" (Mingers 1987, as cited in @hot, 2) & consider the distributional properties of the measures.
+
+
+### Procedure 
+
+The algorithm follows a stepwise procedure [@brunori20, 7-8]:
+
+1. **Choose confidence level** Test the null hypothesis of independence, $H_0^{C^p} : D(Y|C^P) = D(Y)$, for each input variable $C^P  \in \hat{\Omega}$, and obtain a p-value associated with each test, $p^{C^p}$.
+$\implies$ We adjust the p-values for multiple hypothesis testing, such that $p_{adj.}^{C^p} = 1-(1-p^{Cp})^P$, which essentially means that we use the so called *Bonferroni Correction*.
+2. **Choose feature:** test all the null hypotheses of independence between the individual outcome and each of all the observable circumstances (variables). The model selects a variable, $C^*$, with the lowest adjusted p-value. Essentially we choose such that $C^* = \{C^P : \text{argmin} ~ p_{adj.}^{C^p} \}$.
+    i) no hypothesis can be rejected: stop $\implies$ If $p_{adj.}^{C^p} > \alpha$: Exit the algorithm. 
+    ii) one or more circumstance is siginificant: select the circumstance with the smallest p-value and proceed $\rightarrow$ If $p_{adj.}^{C^p} \leq \alpha$: Continue, and select $C^*$ as the splitting variable.
+  3. **Choose split:** for every possible way the selected circumstance can divide the sample into two subgroups, test the hypothesis of same mean outcome in the two resulting subgroups. Choose the splitting point with the smallest p-value. Technically, we test the discrepancy between the subsamples for each possible binary partition, _s_, based on $C^*$, meaning that $Y_s = \{Y_i : C^*_i < x^p \}$ and $Y_{-s} = \{Y_i : C^*_i \geq x^p \}$, and obtain a p-value associated with each test, $p^{C^*_s}$.
+
+$\implies$ The the Split sample based on $C^*_s$, by choosing the split point s that yields the lowest p-value, which is $C^*_s = \{C^*_s : \text{argmin} ~ p^{C^*_s} \}$.
+4. **Repeat :)**
+
+
+# **Regression Trees**
+Following [@brunori20] we split the data into training and testing data by $2/3:1/3$.
+Furthermore, we chose to show the results obtained using regression trees obtained from the 'rpart' package. The training and test data sets will be continually used also for further analysis when we proceed with 'cTree'.
+```{r echo=T, message=FALSE, error=FALSE, warning=FALSE}
+set.seed(123)
+
+AT_equality_data <- AT_equality_data %>%
+  mutate(train_index = sample(c("train", "test"), nrow(AT_equality_data), replace=TRUE, prob=c(0.67, 0.33)))
+
+AT_train <- AT_equality_data %>% filter(train_index=="train")
+AT_test <- AT_equality_data %>% filter(train_index=="test")
+
+formula <- log_income ~ sex + parents_present + adults_home + children_home + father_cob + father_cit + mother_cob + mother_cit + father_edu + mother_edu + father_occup_stat + mother_occup_stat + father_occup + mother_occup + father_manag + mother_manag + tenancy
+
+AT_tree <- rpart(formula, data = AT_train, cp=.008)
+
+AT_tree
+
+rpart.plot(AT_tree, box.palette="RdBu", nn=FALSE, type=2, main = "Regression Tree for Austria 2011")
+```
+
+
+```{r echo=T, message=FALSE, error=FALSE, warning=FALSE}
+FR_equality_data <- FR_equality_data %>%
+  mutate(train_index = sample(c("train", "test"), nrow(FR_equality_data), replace=TRUE, prob=c(0.67, 0.33)))
+
+FR_train <- FR_equality_data %>% filter(train_index=="train")
+FR_test <- FR_equality_data %>% filter(train_index=="test")
+
+
+FR_tree <- rpart(formula, data = FR_train, cp=.003)
+
+FR_tree
+
+rpart.plot(FR_tree, box.palette="RdBu", nn=FALSE, type=2, main = "Regression Tree for France 2011")
+```
+
+```{r echo=T, message=FALSE, error=FALSE, warning=FALSE}
+ES_equality_data <- ES_equality_data %>%
+  mutate(train_index = sample(c("train", "test"), nrow(ES_equality_data), replace=TRUE, prob=c(0.67, 0.33)))
+
+ES_train <- ES_equality_data %>% filter(train_index=="train")
+ES_test <- ES_equality_data %>% filter(train_index=="test")
+
+
+ES_tree <- rpart(formula, data = ES_train, cp=.003)
+
+ES_tree
+
+rpart.plot(ES_tree, box.palette="RdBu", nn=FALSE, type=2, main = "Regression Tree for Spain 2011")
+```
+```{r}
+DK_equality_data <- DK_equality_data %>%
+  mutate(train_index = sample(c("train", "test"), nrow(DK_equality_data), replace=TRUE, prob=c(0.67, 0.33)))
+
+DK_train <- DK_equality_data %>% filter(train_index=="train")
+DK_test <- DK_equality_data %>% filter(train_index=="test")
+
+
+DK_tree <- rpart(formula, data = DK_train, cp=.003)
+
+DK_tree
+
+rpart.plot(DK_tree, box.palette="RdBu", nn=FALSE, type=2, main = "Regression Tree for Denmark 2011")
+```
+
+
+```{r echo=T, message=FALSE, error=FALSE, warning=FALSE}
+IT_equality_data <- IT_equality_data %>%
+  mutate(train_index = sample(c("train", "test"), nrow(IT_equality_data), replace=TRUE, prob=c(0.67, 0.33)))
+
+IT_train <- IT_equality_data %>% filter(train_index=="train")
+IT_test <- IT_equality_data %>% filter(train_index=="test")
+
+
+IT_tree <- rpart(formula, data = IT_train, cp=.003)
+
+IT_tree
+
+rpart.plot(IT_tree, box.palette="RdBu", nn=FALSE, type=2, main = "Regression Tree for Italy 2011")
+```
+```{r}
+FI_equality_data <- FI_equality_data %>%
+  mutate(train_index = sample(c("train", "test"), nrow(FI_equality_data), replace=TRUE, prob=c(0.67, 0.33)))
+
+FI_train <- FI_equality_data %>% filter(train_index=="train")
+FI_test <- FI_equality_data %>% filter(train_index=="test")
+
+
+FI_tree <- rpart(formula, data = FI_train, cp=.003)
+
+FI_tree
+
+rpart.plot(FI_tree, box.palette="RdBu", nn=FALSE, type=2, main = "Regression Tree for Finland 2011")
+```
+
+```{r echo=T, message=FALSE, error=FALSE, warning=FALSE}
+LV_equality_data <- LV_equality_data %>%
+  mutate(train_index = sample(c("train", "test"), nrow(LV_equality_data), replace=TRUE, prob=c(0.67, 0.33)))
+
+LV_train <- LV_equality_data %>% filter(train_index=="train")
+LV_test <- LV_equality_data %>% filter(train_index=="test")
+
+
+LV_tree <- rpart(formula, data = LV_train, cp=.003)
+
+LV_tree
+
+rpart.plot(LV_tree, box.palette="RdBu", nn=FALSE, type=2, main = "Regression Tree for Latvia 2011")
+```
+
+# **Conditional Inference Trees**
+```{r echo=T, message=FALSE, error=FALSE, warning=FALSE}
+AT_Ctree <- ctree(formula, data = AT_train)
+AT_Ctree
+
+plot(AT_Ctree, type = "simple",gp = gpar(fontsize = 6),
+  inner_panel=node_inner,
+  ip_args=list(abbreviate = FALSE,id = FALSE), main = "Conditional Inference Tree for Austria 2011")
+```
+
+*Cross Validation using the Caret package*
+```{r echo=T, message=FALSE, error=FALSE, warning=FALSE}
+fitControl <- trainControl(method = "repeatedcv", number = 10, repeats = 10, savePredictions = T)
+```
+
+```{r echo=T, message=FALSE, error=FALSE, warning=FALSE}
+AT_cctree1 <- train(formula, data = AT_train, method = "ctree", trControl = fitControl, na.action = na.pass)
+
+AT_cctree1 #This is the suggested tree we get from applying Caret
+
+
+AT_cct <- ctree(formula, data = AT_train, mincriterion = 0.99) #Using the suggestion we generate a Conditional Inference Tree and plot it as our final result
+
+plot(AT_cct,gp = gpar(fontsize = 8),
+  inner_panel=node_inner,
+  ip_args=list(abbreviate = FALSE,id = FALSE), main = "Opportunity Conditional Inference Tree for Austria 2011 - Cross Validated with Caret")
+
+
+AT_ctree2 <- ctree(formula, data = AT_equality_data, control = ctree_control(testtype = "Bonferroni", mincriterion = 0.99)) 
+AT_ctree2
+
+plot(AT_ctree2, type = "simple",gp = gpar(fontsize = 6),
+  inner_panel=node_inner,
+  ip_args=list(abbreviate = FALSE,id = FALSE), main = "Opportunity Conditional Inference Tree for Austria 2011 - Cross Validated with Ctree")
+```
+
+```{r}
+AT_test$P_AtCt <- predict(AT_ctree2, newdata = as.data.frame(AT_test))
+
+AT_test$perror <- (AT_test$P_AtCt - AT_test$log_income)^2
+
+AT_test$RMSE <- sqrt(sum((AT_test$P_AtCt - AT_test$log_income)^2/nrow(AT_test), na.rm = T))
+
+# For Austria we have a RMSE of 1.2, which is not very good. But is most likely attributed to the synthetic data. 
+
+# Plot the Errors somehow
+```
+
+
+```{r echo=T, message=FALSE, error=FALSE, warning=FALSE}
+FR_Ctree <- ctree(formula, data = FR_train)
+FR_Ctree
+
+plot(FR_Ctree, type = "simple",gp = gpar(fontsize = 6),
+  inner_panel=node_inner,
+  ip_args=list(abbreviate = FALSE,id = FALSE), main = "Conditional Inference Tree for France 2011")
+
+FR_cctree <- train(formula, data = FR_train, method = "ctree", trControl = fitControl, na.action = na.pass)
+
+FR_cctree #This is the suggested tree we get from applying Caret
+
+
+FR_cct <- ctree(formula, data = FR_train, mincriterion = 0.99) #Using the suggestion we generate a Conditional Inference Tree and plot it as our final result
+
+plot(FR_cct, type = "simple",gp = gpar(fontsize = 8),
+  inner_panel=node_inner,
+  ip_args=list(abbreviate = FALSE,id = FALSE), main = "Opportunity Conditional Inference Tree for France 2011 - Cross Validated")
+
+```
+```{r}
+FR_test$P_FRCt <- predict(FR_cct, newdata = as.data.frame(FR_test))
+
+FR_test$perror <- (FR_test$P_FRCt - FR_test$log_income)^2
+
+FR_test$RMSE <- sqrt(sum((FR_test$P_FRCt - FR_test$log_income)^2/nrow(FR_test), na.rm = T))
+
+# RMSE 0.8
+```
+
+```{r echo=T, message=FALSE, error=FALSE, warning=FALSE}
+ES_Ctree <- ctree(formula, data = ES_train)
+ES_Ctree
+
+plot(ES_Ctree, type = "simple",gp = gpar(fontsize = 6),
+  inner_panel=node_inner,
+  ip_args=list(abbreviate = FALSE,id = FALSE), main = "Conditional Inference Tree for Spain 2011")
+
+ES_cctree <- train(formula, data = ES_train, method = "ctree", trControl = fitControl, na.action = na.omit) #The spanish synthetic dataset has many NA`s, the output of the tree is unreliable as we don't have information on the errors
+
+ES_cctree #This is the suggested tree we get from applying Caret
+
+
+ES_cct <- ctree(formula, data = ES_train, mincriterion = 0.99) #Using the suggestion we generate a Conditional Inference Tree and plot it as our final result
+
+plot(ES_cct, type = "simple",gp = gpar(fontsize = 8),
+  inner_panel=node_inner,
+  ip_args=list(abbreviate = FALSE,id = FALSE), main = "Opportunity Conditional Inference Tree for Spain 2011 - Cross Validated")
+```
+
+```{r echo=T, message=FALSE, error=FALSE, warning=FALSE}
+IT_Ctree <- ctree(formula, data = IT_train, control = ctree_control())
+IT_Ctree
+
+plot(IT_Ctree,gp = gpar(fontsize = 6),
+  inner_panel=node_inner,
+  ip_args=list(abbreviate = FALSE,id = FALSE), main = "Conditional Inference Tree for Italy 2011")
+
+
+IT_cctree <- train(formula, data = IT_train, method = "ctree", trControl = fitControl, na.action = na.pass)
+
+IT_cctree #suggests using mincriterion 0.99
+plot(IT_cctree$finalModel)
+
+#plotted as ctree
+IT_cct <- ctree(formula, data = IT_train, mincriterion = 0.99)
+
+plot(IT_cct,gp = gpar(fontsize = 8),
+  inner_panel=node_inner,
+  ip_args=list(abbreviate = FALSE,id = FALSE), main = "Opportunity Conditional Inference Tree for Italy 2011 - Cross Validated")
+
+
+#In Italy we have too many NAs among the circumstantial 
+```
+
+```{r}
+IT_test$P_Ct <- predict(IT_cct, newdata = as.data.frame(IT_test))
+
+IT_test$perror <- (IT_test$P_Ct - IT_test$log_income)^2
+
+IT_test$RMSE <- sqrt(sum((IT_test$P_Ct - IT_test$log_income)^2/nrow(IT_test), na.rm = T))
+```
+
+```{r}
+# The Denmark set has too many missing values, we cannot evaluate it with the given variables
+
+DK_cctree <- train(formula, data = DK_train, method = "ctree", trControl = fitControl, na.action = na.omit)
+
+DK_cctree
+
+```
+```{r}
+# The Finland set has too many missing values
+FI_cctree <- train(formula, data = FI_train, method = "ctree", trControl = fitControl, na.action = na.omit)
+
+FI_cctree
+
+```
+
+```{r echo=T, message=FALSE, error=FALSE, warning=FALSE}
+LV_Ctree <- ctree(formula, data = LV_train)
+LV_Ctree
+
+plot(LV_Ctree,gp = gpar(fontsize = 8),
+  inner_panel=node_inner,
+  ip_args=list(abbreviate = FALSE,id = FALSE), main = "Conditional Inference Tree for Latvia 2011")
+```
+
+```{r echo=T, message=FALSE, error=FALSE, warning=FALSE}
+LV_cctree <- train(formula, data = LV_train, method = "ctree", trControl = fitControl, na.action = na.pass)
+LV_cctree #again we choose Mincriterion 0.99 based on the RMSE
+
+plot(LV_cctree$finalModel)
+
+# we do the control step using the default ctree_control function
+LV_cct <- ctree(formula, data = LV_train, control = ctree_control(testtype = "Bonferroni", mincriterion = 0.95))
+
+
+plot(LV_cct,gp = gpar(fontsize = 8),
+  inner_panel=node_inner,
+  ip_args=list(abbreviate = FALSE,id = FALSE), main = "Conditional Inference Tree for Latvia 2011 - Cross Validated")
+```
+
+```{r echo=T, message=FALSE, error=FALSE, warning=FALSE}
+LV_test$P_Ct <- predict(LV_cct, newdata = as.data.frame(LV_test))
+
+LV_test$perror <- (LV_test$P_Ct - LV_test$log_income)^2
+
+LV_test$RMSE <- sqrt(sum((LV_test$P_Ct - LV_test$log_income)^2/nrow(LV_test), na.rm = T))
+
+#RMSE of 1.4 which is not so good, and does not speak of good predictive capabilities of the model
+```
+# **Conditional Forest**
+```{r}
+AT_cf <- cforest(formula, AT_equality_data, na.action = na.pass, control = ctree_control(teststat = "quadratic", testtype = "Bonferroni", mincriterion = 0.99), ytrafo = NULL, scores = NULL, ntree = 500L, perturb = list(replace = FALSE, fraction = 0.8))
+
+AThat_cf <- predict(AT_cf, newdata = AT_test, OOB = TRUE, type = "response")
+
+varimp(AT_cf, mincriterion = 0, OOB = TRUE) 
+
+importance_cf <- data.frame(varimp(AT_cf, mincriterion = 0, OOB = TRUE))
+names(importance_cf) <- "importance"
+importance_cf$var_name = rownames(importance_cf)
+importance_cf <- importance_cf  %>% arrange( desc(importance))
+
+```
+
+```{r}
+ggplot(importance_cf, aes(x = var_name, y = importance)) +
+    geom_point() +
+    scale_x_discrete(limits = importance_cf$var_name[order(importance_cf$importance)]) +
+    labs(title = "Conditional Forest variable importance - Austria 2011", x = "", y = "Mean decrease in sum of squared residuals") +
+    coord_flip() +
+    theme(axis.text.y = element_text(hjust = 0))
+```
+
+```{r}
+FR_cf <- cforest(formula, FR_equality_data, na.action = na.pass, control = ctree_control(teststat = "quadratic", testtype = "Bonferroni", mincriterion = 0.99), ytrafo = NULL, scores = NULL, ntree = 500L, perturb = list(replace = FALSE, fraction = 0.8))
+importance_cf_FR <- data.frame(varimp(FR_cf, mincriterion = 0, OOB = TRUE))
+names(importance_cf_FR) <- "importance"
+importance_cf_FR$var_name = rownames(importance_cf_FR)
+importance_cf_FR <- importance_cf_FR  %>% arrange(desc(importance))
+```
+
+```{r}
+IT_cf <- cforest(formula, IT_equality_data, na.action = na.pass, control = ctree_control(teststat = "quadratic", testtype = "Bonferroni", mincriterion = 0.99), ytrafo = NULL, scores = NULL, ntree = 500L, perturb = list(replace = FALSE, fraction = 0.8))
+
+importance_cf_IT <- data.frame(varimp(IT_cf, mincriterion = 0, OOB = TRUE))
+names(importance_cf_IT) <- "importance"
+importance_cf_IT$var_name = rownames(importance_cf_IT)
+importance_cf_IT <- importance_cf_IT  %>% arrange(desc(importance))
+```
+
+```{r}
+LV_cf <- cforest(formula, LV_equality_data, na.action = na.pass, control = ctree_control(teststat = "quadratic", testtype = "Bonferroni", mincriterion = 0.99), ytrafo = NULL, scores = NULL, ntree = 500L, perturb = list(replace = FALSE, fraction = 0.8))
+
+importance_cf_LV <- data.frame(varimp(LV_cf, mincriterion = 0, OOB = TRUE))
+names(importance_cf_LV) <- "importance"
+importance_cf_LV$var_name = rownames(importance_cf_LV)
+importance_cf_LV <- importance_cf_LV  %>% arrange(desc(importance))
+```
+
+```{r}
+
+```
+
+```{r}
+ggplot(importance_cf_FR, aes(x = var_name, y = importance)) +
+    geom_point() +
+    scale_x_discrete(limits = importance_cf_FR$var_name[order(importance_cf_FR$importance)]) +
+    labs(title = "Conditional Forest variable importance - France 2011", x = "", y = "Mean decrease in sum of squared residuals") +
+    coord_flip() +
+    theme(axis.text.y = element_text(hjust = 0))
+```
+
+```{r}
+ggplot(importance_cf_IT, aes(x = var_name, y = importance)) +
+    geom_point() +
+    scale_x_discrete(limits = importance_cf_IT$var_name[order(importance_cf_IT$importance)]) +
+    labs(title = "Conditional Forest variable importance - Italy 2011", x = "", y = "Mean decrease in sum of squared residuals") +
+    coord_flip() +
+    theme(axis.text.y = element_text(hjust = 0))
+```
+
+```{r}
+ggplot(importance_cf_LV, aes(x = var_name, y = importance)) +
+    geom_point() +
+    scale_x_discrete(limits = importance_cf_LV$var_name[order(importance_cf_LV$importance)]) +
+    labs(title = "Conditional Forest variable importance - Latvia 2011", x = "", y = "Mean decrease in sum of squared residuals") +
+    coord_flip() +
+    theme(axis.text.y = element_text(hjust = 0))
+```
+
+
+# **Conclusion**
+=======
+# **Conclusion**
+
+# **References**
+>>>>>>> 8860f3d4dd72f45073c60dda2f3226dd505e53a1

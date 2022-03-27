@@ -1,0 +1,98 @@
+---
+title: "Us_Data"
+author: "Anne Valder"
+date: "13 1 2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+
+```{r}
+
+library(dplyr)
+
+getwd()
+data_path = "."
+#setwd("/Users/annevalder/Desktop/UNI /WU WIEN/WS20_21/2187-2087_WS2020_Data_Science-Machine_learning/01_Data Science Seminar Paper")
+#read_dta()
+
+# Household-type and -size (children, married etc)
+family_structure_children <- read.csv(file.path(data_path,"DEC_00_SF1_P018_with_ann.csv"))
+family_structure_meta_children <- read.csv(file.path(data_path, "DEC_00_SF1_P018_metadata.csv"))
+summary(family_structure_meta_children)
+head(family_structure_meta_children)
+
+family_structure_married <- read.csv(file.path(data_path, "DEC_00_SF3_P018_with_ann.csv"))
+family_structure_meta_married <- read.csv(file.path(data_path, "DEC_00_SF3_P018_metadata.csv"))
+summary(family_structure_married)
+head(family_structure_married)
+
+#Population Data (Age &Gender)
+age_gender_meta_99 <- read.csv(file.path(data_path, "DEC_00_SF3_P008_metadata.csv"))
+age_gender_99 <- read.csv(file.path(data_path, "DEC_00_SF3_P008_with_ann.csv"))
+summary(age_gender_99)
+head(age_gender_99)
+
+age_gender_meta_10 <- read.csv(file.path(data_path, "DEC_10_SF1_QTP2_metadata.csv"))
+age_gender_10 <- read.csv(file.path(data_path, "DEC_10_SF1_QTP2_with_ann.csv"))
+summary(age_gender_10)
+head(age_gender_10)
+
+#Income distribution
+income_dist_99 <- read.csv(file.path(data_path, "DEC_00_SF3_P054_with_ann.csv"))
+income_dist_meta_99 <- read.csv(file.path(data_path, "DEC_00_SF3_P054_metadata.csv"))
+summary(income_dist_99)
+head(income_dist_99)
+
+income_dist_10 <- read.csv(file.path(data_path, "ACS_10_5YR_B19025_with_ann.csv"))
+income_dist_meta_10 <- read.csv(file.path(data_path, "ACS_10_5YR_B19025_metadata.csv"))
+summary(income_dist_10)
+head(income_dist_10)
+
+#labor market & industry
+labor_market_status_meta <- read.csv(file.path(data_path, "DEC_00_SF3_P043_metadata.csv"))
+labor_market_status <- read.csv(file.path(data_path, "DEC_00_SF3_P043_with_ann.csv"))
+summary(labor_market_status)
+head(labor_market_status)
+ 
+employment_industry_meta <- read.csv(file.path(data_path, "DEC_00_SF3_P049_metadata.csv"))
+employment_industry <- read.csv(file.path(data_path, "DEC_00_SF3_P049_with_ann.csv"))
+summary(employment_industry)
+head(employment_industry)
+  
+#migration
+migration_rates_meta <- read.csv(file.path(data_path, "DEC_00_SF3_P021_metadata.csv"))
+migration_rates <- read.csv(file.path(data_path, "DEC_00_SF3_P021_with_ann.csv")) 
+summary(migration_rates)
+head(migration_rates)
+
+#higher educ
+higher_educ_ipeds2000_ef <-  read.csv(file.path(data_path, "ef2000a_data_stata.csv"))
+summary(migration_rates)
+head(migration_rates)
+
+higher_educ_ipeds2000_fa <-read.csv(file.path(data_path, "fa2000hd_data_stata.csv"))
+summary(migration_rates)
+head(migration_rates)
+
+higher_educ_ipeds2000_ic <-read.csv(file.path(data_path, "ic2000_ay_data_stata.csv"))
+summary(migration_rates)
+head(migration_rates)
+
+#schooleduc - DTA files - read_delim?
+educ_school1 <- read.csv(file.path(data_path, "Global-Report-Card-Data-11.14.12.csv"))
+#k_12_2 <- read.csv(file.path(data_path, "CCD_sd_96.dta"))
+
+# eher nicht
+migration_rates_in <- read.csv(file.path(data_path, "countyinflow0405.csv"))
+migration_rates_out <- read.csv(file.path(data_path, "countyoutflow0405.csv")) 
+
+#
+population1990 <- read.csv(file.path(data_path, "nhgis0058_ds120_1990_state.csv")) 
+
+```

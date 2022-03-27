@@ -1,0 +1,184 @@
+---
+title: "Equality of Opportunity Seminar Paper"
+author: "Leonard Fidlin, Daniel Jost, Anne Valder"
+date: "14 1 2021"
+bibliography: bibliography.bib
+output: 
+  html_document:
+    toc: true
+    toc_depth: 2
+    number_sections: false
+subtitle: Data Science and Machine Learning 2187 & 2087
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(include = TRUE)
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(error = TRUE)
+knitr::opts_chunk$set(fig.align = 'center')
+```
+
+# **Introduction**
+```{r echo=T, message=FALSE, error=FALSE, warning=FALSE}
+library(rpart)
+library(rpart.plot) 
+library(precrec)
+library(caret)       
+library(party)
+library(tidyverse)
+library(vcd)
+library(RColorBrewer)
+library(knitr)
+library(glmnet)  
+library(haven)
+library(fst)
+library(ranger)
+library(tuneRanger)
+library(xgboost)
+library(readr)
+```
+# **Data Wrangling**
+```{r echo=T, message=FALSE, error=FALSE, warning=FALSE}
+data_path ="."
+getwd()
+hhi2019 <- read_sav(file.path(data_path,"wetransfer-a0b059", "hhi2019en_1.0.sav"))
+#hse2019 <- read_sav(file.path(data_path,"wetransfer-a0b059", "hse2019en_1.0.sav"))
+wrk2019 <- read_sav(file.path(data_path,"wetransfer-a0b059", "wrk2019en_1.2.sav"))
+inc2019 <- read_sav(file.path(data_path,"wetransfer-a0b059", "inc2019en_1.0.sav"))
+
+write_csv(x = hhi2019, path = "hhi2019.csv" )
+hhi2019csv <- read.csv(file.path(data_path, "hhi2019.csv"))
+
+# hhi2019 %>% left_join(select(wrk2019 %>% select(c(nohhold,burgst, branche)), by = "nohhold"))
+
+
+write_csv(x = inc2019, path = "inc2019.csv" )
+inc2019csv <- read.csv(file.path(data_path, "inc2019.csv"))
+
+write_csv(x = wrk2019, path = "wrk2019.csv" )
+wrk2019csv <- read.csv(file.path(data_path, "wrk2019.csv"))
+
+sub_wrk2019csv <- wrk2019csv %>% select(c(nohhold,burgst, branche))
+
+
+sub_inc2019csv <- inc2019csv %>% select(c(nohhold, ij161, in49a))
+
+
+join <- hhi2019csv %>% left_join(sub_wrk2019csv, by ="nohhold")
+netherlands_survey_data <- join %>%  left_join(sub_inc2019csv, by = "nohhold")
+
+summary(netherlands_survey_data) %>% head()
+
+# We decide to drop
+sum(is.na(netherlands_survey_data$in49a))
+
+netherlands_survey_clean <- netherlands_survey_data %>% as_data_frame()  %>% drop_na(in49a)
+
+
+netherlands_survey_clean <- netherlands_survey_clean %>% mutate( 
+                    #drop_na(in49a),
+                    income_K = (in49a/1000),
+                    age = as.numeric(2019 - gebjaar)) %>% 
+                    rename(
+                          "household_ID" = nohhold,
+                          "birthyear" = gebjaar,
+                          "gender" = geslacht,
+                          "educ" = oplmet,
+                          "occupation" = bezighei,
+                          "num_hhold_memb" = aantalhh,
+                          "num_hhold_children" = aantalki,
+                          "urbanization" =  sted,
+                          "region"= regio,
+                          "hhold_type" = woonvorm,
+                          "tenancy" = woning,
+                          "industry" = branche,
+                         )
+
+```
+# **Research Question**
+The selection of circumstances is a key aspect for an empirical analysis of inequality of opportunity, because estimates have been shown to be sensitive to the number of types considered [@brunori20].
+
+
+# **Data**
+@brunori20 choose the circumstances based on the data quality in their survey data. Opting for fewer missing entries in each catetgory than other characteristics. In their German focused paper they use: sex, migration background, resident in either East or West Germany (not important for our Dutch sample), Father's and Mother's education and training, Father's and Mother's occupation measured by the ISCO code, number of siblings, and an indicator of dissability. Their sample is further restricted to ages 30-60.
+In their "original" EU-SILC data paper the use the following circumstances which we could find in the Dutch data: 
+
+General Household Information:
+Respondents sex (male, female) (GESLACHT), number of household members (AANTALHH), number of children in the household (AANTALKI), Highest level of education completed (OPLMET), primary occupation of the respondent (BEZIGHEI), type of accommodation (WONING).
+
+Questionaire Household and Work:
+Marital Status (BURGST), Father/Mother main occupation/job (BRANCHE), 
+
+Total Gross Income Category (IJ161BR thru IJ16BR3), Total Net income of household (INKHH)
+Inheritance? If yes then: Inheritance of 100,000 or 500,000 should make sense: (HER2), (HER3)
+
+Questionaire on Accommodation and mortgages: tenancy status (WO1)
+
+What we dont have is migration status, number of working adults in households, managerial position of father/mother.
+Further we do not have indicators on the educational endowment of the parents of the questioned individuals. 
+
+# **Method**: Conditional Inference Trees
+
+* `ctree` from party package in R
+* recursive partitioning just like `rpart`
+* `rpart`: maximizing an information measure
+* `ctree`: significance test procedure
+
+### Advantages
+
+**Advantages of Trees:** straightforward to interpret
+
+**Advantages of Trees over linear regression models:** very large set of observations can be used & model speciﬁcation is no longer exogenously given
+
+**Advantages of Conditional Inference Trees over Regression and Classification Trees (CART):** the algorithm automatically provides a test for the null hypothesis of equality of opportunity & prevents overfitting while CART "cannot distinguish between a significant and an insignificant improvement in the information measure" (Mingers 1987, as cited in @hot, 2) & consider the distributional properties of the measures.
+
+
+### Procedure 
+
+The algorithm follows a stepwise procedure [@brunori20, 7-8]:
+
+1. **Choose confidence level**
+2. **Choose feature:** test all the null hypotheses of independence between the individual outcome and each of all the observable circumstances
+    i) no hypothesis can be rejected: stop
+    ii) one or more circumstance is siginificant: select the circumstance with the smallest p-value and proceed
+3. **Choose split:** for every possible way the selected circumstance can divide the sample into two subgroups, test the hypothesis of same mean outcome in the two resulting subgroups. Choose the splitting point with the smallest p-value
+4. **Repeat :)**
+
+
+# **Results**
+```{r echo=T, message=FALSE, error=FALSE, warning=FALSE}
+set.seed(123)
+
+netherlands_survey_clean <- netherlands_survey_clean %>%
+  mutate(train_index = sample(c("train", "test"), nrow(netherlands_survey_clean), replace=TRUE, prob=c(0.85, 0.15)))
+
+train <- netherlands_survey_clean %>% filter(train_index=="train")
+test <- netherlands_survey_clean %>% filter(train_index=="test")
+
+<<<<<<< HEAD
+formula <- income_K  ~gender + educ + occupation + num_hhold_memb + num_hhold_children +  urbanization + region + hhold_type + tenancy + industry
+
+tree <- rpart(formula, data = train, cp=.01)
+
+tree
+
+rpart.plot(tree, nn=FALSE, type=2)
+
+```
+```{r echo=T, message=FALSE, error=FALSE, warning=FALSE}
+control <- trainControl(method = "repeatedcv", number = 10, repeats = 10, savePredictions = T, classProbs = T, summaryFunction = multiClassSummary)
+
+tuning_grid <- expand.grid(cp = seq(0, 0.02, by= 0.005))
+tuning_grid
+
+tree_caret <- train(data = netherlands_survey_clean, formula , method = "rpart", trControl = control, tuneGrid = tuning_grid, metric = "Accuracy", na.action = na.pass)
+tree_caret
+```
+# **Conclusion**
+=======
+# **Conclusion**
+
+# **References**
+>>>>>>> 8860f3d4dd72f45073c60dda2f3226dd505e53a1

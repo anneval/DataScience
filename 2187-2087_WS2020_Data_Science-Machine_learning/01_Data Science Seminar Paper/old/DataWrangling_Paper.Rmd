@@ -1,0 +1,105 @@
+---
+title: "01_Opp_Inequaliy_Paper"
+author: "Anne Valder"
+date: "11 1 2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+
+library(devtools)
+# install_github("muuankarski/r.eusilc")    #zum data mergen
+library(r.eusilc)                           #zum data mergen
+```
+
+# Load Data, modify & join (über country?)
+
+```{r}
+data_path = "."
+
+getwd()
+#setwd("/Users/annevalder/Desktop/UNI /WU WIEN/WS20_21/2187-2087_WS2020_Data_Science-Machine_learning/01_Data Science Seminar Paper")
+```
+
+
+```{r}
+#Datensätze einlesen & bereinigen!
+##1
+age_sex_input = read.csv(file.path(data_path, "Data", "Average Age Sex Adults", "ilc_lvps01_1_Data.csv"), skip = 14 ,col.names = c("Year", "Country", "Age", "Sex", "X", "weg"))
+
+
+age_sex_input <- age_sex_input %>%  select(!weg) %>%
+                  mutate(
+                    male = recode(Sex, "Males" = 1, "Females" = 0),
+                    #Age = "18",
+                    Country = replace(Country,c(9,10), "Germany" ),
+                     Country = replace(Country,c(71,72), "Kosovo" ))
+                      #X = as.numeric(X))
+
+                    
+summary(age_sex_input)
+
+##2
+
+dist_input = read.csv(file.path(data_path, "Data", "Dist Children by education level of parents", "ilc_lvps25_1_Data.csv"), skip = 21)
+
+
+##3 
+citizenship_tenure_input = read.csv(file.path(data_path, "Data", "Dist Pop Citizenship and Tenure Status", "ilc_lvps15_1_Data.csv"), skip = 224 ,col.names = c("Year","Country","Percentage","Tenure","Citizenship","Gender","Age", "Value", "weg"))
+
+citizenship_tenure_input <- citizenship_tenure_input %>% select(!c(Percentage,weg))
+
+##4
+country_birth_input = read.csv(file.path(data_path, "Data", "Dist Pop Citizenship and Tenure Status", "ilc_lvps15_1_Data.csv"), skip = 224 ,col.names = c("Year","Country","Percentage","Tenure","Birth_Country","Gender","Age", "Value", "weg"))
+
+
+country_birth_input <- country_birth_input %>% select(!c(Percentage,weg))
+
+##5
+household_type_input = read.csv(file.path(data_path, "Data", "Distribution Household Type", "ilc_lvph02_1_Data.csv"), skip = 113,col.names = c("Year","Country","Type","Value","b"))
+                              
+household_type_input <- household_type_input %>% select(!b)  %>% mutate(Country = replace(Country,c(64:79), "Germany"), Country = replace(Country,c(560:575), "Kosovo" ))
+               
+#rename("Type" = Single.person) %>% 
+
+##6 
+numerchildren_input = read.csv(file.path(data_path, "Data", "Distribution Number of Children Households", "ilc_lvph05_1_Data.csv"), skip = 28,col.names = c("Year","Country","Nr_Child","Value","b"))
+                              
+numerchildren_input <- numerchildren_input %>% select(!b)  %>% mutate(Country = replace(Country,c(17:20), "Germany"), Country = replace(Country,c(141:144), "Kosovo" ))
+
+##7 Distribution of population by most frequent activity status
+
+activity_status_input = read.csv(file.path(data_path, "Data", "Distribution of population by most frequent activity status", "ilc_lvhl02_1_Data.csv"), skip = 112, col.names = c("Year","Country","Total","Activity_Status","Age","Gender","Value","b"))
+
+activity_status_input <- activity_status_input %>% select(!c(Total, b)) %>% mutate(Country = replace(Country,c(65:80), "Germany"), Country = replace(Country,c(561:576), "Kosovo" ))
+
+##8 
+
+
+occupation_input = read.csv(file.path(data_path, "Data", "Distribution of population by occupation", "ilc_lvhl03_1_Data.csv"), skip = 141, col.names = c("Year","Country","Occupation","Total","Gender","Value","b"))
+
+occupation_input <- occupation_input %>% select(!c(Total, b)) %>% mutate(Country = replace(Country,c(80:99), "Germany"), Country = replace(Country,c(700:719), "Kosovo"))
+
+
+##9 
+
+living_cond_input = read.csv(file.path(data_path, "Data", "Share Children living with parents", "ilc_lvps20_1_Data.csv"), skip = 29, col.names = c("Year","Country","Condition","Value","b"))
+
+living_cond_input <- living_cond_input %>% select(!b) %>% mutate(Country = replace(Country,c(16:19), "Germany"), Country = replace(Country,c(140:143), "Kosovo"))
+
+##10 
+#skip geht nicht andere Reihung 
+educ_transition_input = read.csv(file.path(data_path, "Data", "Transition of education", "ilc_igtp01_1_Data.csv"), col.names = c("Education","Country","Percentage","Year","Education2" ,"Gender","Value", "b"))
+
+#educ_transition_input <- educ_transition_input %>% select(!c(b, Percentage) %>% mutate(Country = replace(Country,c(25:30), "Germany"))
+
+```
+merge data with `r.eusilc` pkg
+<!--so macht man Kommentare in Rmd files die nicht im output landen-->
+<!--http://muuankarski.github.io/r.eusilc/vignettes/r.eusilc_tutorial.html-->
+```{r}
+merge_eusilc()
+```
+

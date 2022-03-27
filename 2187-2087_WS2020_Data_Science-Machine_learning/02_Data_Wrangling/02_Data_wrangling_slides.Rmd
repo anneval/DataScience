@@ -1,0 +1,142 @@
+---
+title: "Data Science and Machine Learning 2187 & 2087: Data Wrangling"
+author: "Max Thomasberger"
+date: "10 2020"
+output: 
+  beamer_presentation:
+    slide_level: 2
+    fig_width: 8
+    fig_height: 4
+header-includes:
+  - \usepackage{themes/beamerthemewunew}
+  
+fontsize: 11pt
+classoption: "aspectratio=1610"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+knitr::opts_chunk$set(dev = 'pdf')
+
+library(tidyverse)
+library(tufte)
+
+source("./code/@@@_functions.R")
+
+```
+
+## Inconvenient Truth No. 22:
+
+### You will spend a considerable amount of time wrangling with your data
+
+```{r, echo=FALSE, out.width="30%", fig.cap="Listen to Yoda, he's been doing this for ages"}
+knitr::include_graphics("./art/dirty_data.png")
+```
+
+
+
+## How do data scientist spend their time?
+
+![](./art/propotion_time_spent_DS_activities.png)
+
+
+## Gathering Data for social science research I
+
+
+* Public Databases by offical actors:
+  + Eurostat, Fred, Worldbank, Open Data, etc.
+  + Files in various formats (txt, excel, csv, stata, spss, raster files, etc.).
+  + Data access via an API, mostly json format.
+  
+* Public Databases by private actors and NGOs:
+  + Facebook movement data, World Pop, etc.
+  + Files in various formats (txt, excel, csv, stata, spss, raster files, etc.).
+  + Data access via an API, mostly json format.
+  
+* Closed Data/Microdata by governmental agencies, statistical bureaus, etc.:
+  + Complicated "vetting" procedure.
+  + Scientific use files in various formats (txt, excel, csv, stata, spss, etc.).
+  + Unstructured data
+  + Data "hidden" in databases
+  + access sometimes only allowed "on location".
+
+## Gathering Data for social science research II
+
+* Data used/provided by academic publications in various formats (excel, csv, stata, spss, etc.)
+  + [Harvard Dataverse](https://dataverse.harvard.edu/), [Nature Scientific Data](https://www.nature.com/sdata/), [Academic Torrents](https://academictorrents.com/), etc.
+  
+* Private Data providers
+  + Cooperation with companies, Platforms like Kaggle, etc.
+  + Company data is often "hidden" inside databases.
+  + Files in various formats (txt, excel, csv, stata, spss, raster files, etc.).
+  + Data access via an API, mostly json format.
+  
+* Gathering your own data
+  + Experiments
+  + Surveys
+  + Webscraping, API access, Google Analytics, etc.
+
+
+## So now that you've got your data... What next?
+
+```{r, echo=FALSE, out.width="50%", fig.cap="A nice image about the pain we are about to face"}
+knitr::include_graphics("./art/encoding.PNG")
+```
+
+## The data wrangling process starts
+
+```{r, echo=FALSE, out.width="50%", fig.cap="Phases of a typical data science project (R for data science)"}
+knitr::include_graphics("./art/data-science-wrangle.png")
+```
+
+* How to read the data in?
+* Data is spread across multiple files and sources.
+* Variable definitions aren't clean/consistent.
+* The data isn't displayed correctly.
+* You have to create variables, you have to transform variables, you have to aggregate variables.
+* You have to bring the data into the format the packages actually needs.
+
+## Sounds pretty awful but in reality:
+
+### We all use Google
+1. Learning this can be fun!
+2. It is easy once you've learned the basics
+3. Stack Exchange and Google are your friends (almost every problem already ocurred)
+
+```{r, echo=FALSE, out.width="30%",fig.align="center"}
+knitr::include_graphics("./art/google_programmer.png")
+```
+
+## The main ressource for this part of the course is
+
+```{r, echo=FALSE, out.width="30%", fig.cap="Get it for free at: https://r4ds.had.co.nz/"}
+knitr::include_graphics("./art/r4datascience_cover.png")
+```
+
+## In this course we are focusing on the tidyverse for doing this stuff
+
+```{r, echo=FALSE, out.width="30%", fig.cap="A great collection of R-packages maintained by the guys/gals from R-studio"}
+knitr::include_graphics("./art/hex-tidyverse.png")
+```
+
+## Tidyverse or not?
+
+"The tidyverse is an opinionated collection of R packages designed for data science. All packages share an underlying design philosophy, grammar, and data structures." 
+
+[www.tidyverse.org](https://www.tidyverse.org/)
+
+* Succint and readable synthax which is important for reproducible research and collaborations
+* Great for small data sets handled inside RAM (a few hundred Megabytes to 1-2 Gb)
+* Best plotting package out there (imo)
+* Maintained by R-Studio and Hadley Wickham
+* Big community and a lot of documentation/information
+* Connectors to SQL, data.table, spark and hadoop
+
+
+### For big(ish) data other tools are better suited:
+
+* data.table package
+* Databases like PostgreSQL or MySQL
+* Clustering solutions like Spark, Hadoop, etc.
+

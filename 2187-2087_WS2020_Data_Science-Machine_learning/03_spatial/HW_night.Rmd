@@ -1,0 +1,335 @@
+---
+title: "Spatial assignement: France"
+author: 'GROUP 4: Leonard Fidlin (h01352705), Daniel Jost (h01451889), Anne Valder
+  (h11928415)'
+output:
+  html_document:
+    toc: yes
+    toc_depth: 1
+    number_sections: no
+subtitle: Data Science and Machine Learning 2187 & 2087
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(fig.align = 'center')
+```
+
+
+```{r, warning=F, message=F}
+start <- Sys.time()     # measure time
+
+library(tidyverse)      # welcome to the dark side
+library(viridis)        # color scales
+library(ggpubr)         # to show two maps next to each other using ggarrange()
+library(scales)         # modify  formatting of axis values in ggplot2
+library(raster)         # to handle raster data
+library(fasterize)      # faster raster
+library(sf)             # simple features formats (relies on dplyr)
+library(ncdf4)          # network common data form files
+library(rmapshaper)     # edit and simplify spatial objects
+library(exactextractr)  # for faster extraction of GDP and nighttime lights
+```
+
+Raster options
+```{r, warning=F, message=T}
+rasterOptions(tmptime = 2, 
+              timer = TRUE,
+              maxmemory = 12e+9,
+              chunksize = 6e+9,
+              datatype = "FLT4S")
+```
+
+We downloaded the shapefile for **France** from 
+[gadm.org](https://gadm.org/download_country_v3.html), GDP data from 
+[datadryad.org](https://datadryad.org) and nighttime lights data from [eogdata.mines.edu](https://eogdata.mines.edu/products/vnl/).
+
+# 1. GDP and nighttime lights
+**Extract the values for GDP and nighttime lights for 2015 for two different subnational levels. Use the R package extractextractr for faster extraction of the values. This package is also able to handle objects of the class sf, while the standard extract function is not!**
+
+## Shapefiles
+
+*Level 1*
+```{r, warning=F, message=T}
+sf_1 <-  st_read("gadm36_FRA_1.shp")
+```
+
+*Level 2*
+```{r, warning=F, message=T}
+sf_2 <-  st_read("gadm36_FRA_2.shp")
+```
+
+```{r out.width="100%"}
+sf_1 <-  sf_1[, c("NAME_1")]
+sf_2 <-  sf_2[, c("NAME_2")]
+
+sf_1_p <- ggplot(sf_1) + geom_sf() + theme_void() + labs(title = "Regions of France", subtitle = "Régions françaises")
+sf_2_p <- ggplot(sf_2) + geom_sf() + theme_void() + labs(title = "Departments of France", subtitle = "Départements français")
+
+ggarrange(sf_1_p, sf_2_p, ncol = 2, nrow = 1)
+```
+
+
+```{r}
+ggplot(sf_2) + geom_sf() + theme_void() + labs(title = "Regions and departments of France", subtitle = "Régions et départements français") + geom_sf(data = sf_1, alpha =.4)
+```
+
+## GDP data
+import and clean GDP data
+
+*Level 1*
+```{r, warning=F, message=F}
+gdp_1 <-  brick("GDP_PPP_30arcsec_v3.nc")
+gdp_2015_1 <-  gdp_1$X2015
+gdp_2015_1 <-  crop(gdp_2015_1, sf_1)
+gdp_2015_1 <-  mask(gdp_2015_1, sf_1)
+names(gdp_2015_1) <-  "gdp" 
+```
+
+*Level 2*
+```{r, warning=F, message=F}
+gdp_2 <-  brick("GDP_PPP_30arcsec_v3.nc")
+gdp_2015_2 <-  gdp_2$X2015
+gdp_2015_2 <-  crop(gdp_2015_2, sf_2)
+gdp_2015_2 <-  mask(gdp_2015_2, sf_2)
+names(gdp_2015_2) <-  "gdp" 
+```
+
+## Night lights data
+import and clean night lights data
+
+*Level 1*
+```{r}
+nightlights_1 = raster("SVDNB_npp_20150101-20151231_75N060W_vcm-orm-ntl_v10_c201701311200.avg_rade9.tif")
+nightlights_1 = crop(nightlights_1, sf_1)
+nightlights_1 = mask(nightlights_1, sf_1)
+names(nightlights_1) = "night_lights"
+```
+
+*Level 2*
+```{r}
+nightlights_2 = nightlights_1
+nightlights_2 = crop(nightlights_2, sf_2)
+nightlights_2 = mask(nightlights_2, sf_2)
+names(nightlights_2) = "night_lights"
+```
+
+## Extraction
+Using the R package extractextractr for faster extraction of the values.
+
+*Level 1*
+```{r, warning=F, message=F, results ="hide"}
+gdp_extract_1 <- exact_extract(gdp_2015_1, sf_1, 'sum')
+nightlights_extract_1 <- exact_extract(nightlights_1, sf_1, 'sum')
+
+ds_1 <- data.frame(gdp_extract_1, nightlights_extract_1) 
+
+sf_1_extract <- sf_1
+sf_1_extract <- bind_cols(sf_1, ds_1) %>% 
+ rename(gdp = gdp_extract_1, 
+        nightlights = nightlights_extract_1)
+```
+*Level 2*
+```{r, warning=F, message=F, results ="hide"}
+gdp_extract_2 <- exact_extract(gdp_2015_2, sf_2, 'sum')
+nightlights_extract_2 <- exact_extract(nightlights_2, sf_2, 'sum')
+
+ds_2 <- data.frame(gdp_extract_2, nightlights_extract_2) 
+
+sf_2_extract <- sf_2
+sf_2_extract <- bind_cols(sf_2_extract, ds_2) %>% 
+  rename(gdp = gdp_extract_2, 
+         nightlights = nightlights_extract_2)
+```
+
+
+# 2. Scatter plots
+**For each of the two subnational levels create a scatter plot that shows the relationship between GDP and nighttime lights. Add a linear fit to the plots!**
+
+```{r, warning=F, message=F}
+library(grid)
+library(gridExtra)
+```
+
+```{r, warning=F, message=F}
+sf_1_extract <- sf_1_extract %>% 
+  mutate(gdp_bl = gdp/1000000000, nl_ml = nightlights/1000)
+
+ile <- sf_1_extract %>% filter(NAME_1 == "Île-de-France")
+auv <- sf_1_extract %>% filter(NAME_1 == "Auvergne-Rhône-Alpes")
+woIle <- sf_1_extract %>% filter(NAME_1 != "Île-de-France")
+
+plot_1 <- ggplot(sf_1_extract, aes(x = gdp_bl, y = nl_ml)) + 
+  geom_point(aes(color = NAME_1), size = 3) + 
+  geom_point(data = ile, color = "darkred", size=1, shape = 16, fill = "darkred", stroke = 1) +
+  geom_text(data = ile, aes(label = "including Paris (ÎdF) <3"), color = "darkred", size = 3, vjust = -1.7, hjust = .9, angle = 24) +
+  geom_text(data = auv, aes(label = "excluding Paris (ÎdF) </3"), color = "darkblue", size = 3, vjust = -3, hjust = .5) +
+  scale_color_discrete(name="Region") +
+  geom_smooth(method = lm, color = "darkred", show.legend = c(NAME_1 = "Île-de-France")) +
+  labs(title="Relationship of GDP and night lights on the regional level", 
+       x="Night lights in billions", 
+       y="GDP (PPP) in thousands") +
+  scale_x_continuous(labels = comma_format()) +
+  geom_smooth(data = woIle, method = lm, color = "darkblue", se = F, linetype = 2) +
+  theme_bw() +
+  theme(plot.title = element_text(size = 14))
+plot_1
+```
+On the regional level there seems to be a positive relationship of GDP and night lights. The biggest outlier is Paris with the highest GDP and the highest level of night lights. Excluding "Île de France" would result in a much steeper lm line.
+
+
+
+```{r, warning=F, message=F}
+sf_2_extract <- sf_2_extract %>% 
+  mutate(gdp_bl = gdp/1000000000, nl_ml = nightlights/1000)
+
+paris <- sf_2_extract %>% filter(NAME_2 == "Paris")
+
+plot_2 <- ggplot(sf_2_extract, aes(x=gdp_bl, y=nl_ml)) + 
+  geom_point() +
+  geom_point(data = paris, color = "darkred", size=2, shape = 1, fill = "darkred", stroke = 20, alpha=.3) +
+  geom_text(data = paris, aes(label = "Paris <3"), color = "darkred", vjust = 2) +
+  geom_smooth(method=lm, color = "darkred") +
+  labs(title="Relationship of GDP and night lights on the district level",
+       x = "Night lights in billions", 
+       y = "GDP (PPP) in thousands") +
+  theme_bw() +
+  theme(plot.title = element_text(size = 12))
+plot_2
+```
+On the ditcrict level there is also an apparent relationship of GDP and night lights. Paris is by far the brightest department but not the richest. The relationship does not really hold and becomes a bit diffuse for districts that are very bright during the night (like Paris).
+
+
+# 3. Pair of maps
+**Create a pair of maps that shows GDP on the left and nighttime lights on the right side for each subnational level.**
+
+Simplify the map:
+```{r}
+sf_1_extract <- ms_simplify(sf_1_extract, keep = 0.01, keep_shapes = T)
+sf_2_extract <- ms_simplify(sf_2_extract, keep = 0.01, keep_shapes = T)
+```
+
+Regional level
+```{r out.width="100%"}
+gdp_plot <- sf_1_extract %>% 
+  ggplot() +
+  geom_sf(aes(fill = gdp_bl)) +
+  scale_fill_viridis(option = "viridis", name = "GDP (PPP) in thousands") +
+  labs(title = "GDP") +
+  theme_void() + 
+  theme(legend.position = "left")
+
+nightlights_plot <- ggplot() +
+  geom_sf(data = sf_1_extract, aes(fill = nl_ml)) +
+  scale_fill_viridis(option = "viridis", name = "Night lights in billions") +
+  labs(title = "Night lights") +
+  theme_void()
+
+ggarrange(gdp_plot, nightlights_plot, ncol = 2, nrow = 1)
+```
+
+District Level
+```{r out.width="100%"}
+gdp_plot = ggplot() +
+  geom_sf(data=sf_2_extract, aes(fill = gdp_bl)) +
+  scale_fill_viridis(option = "viridis", name = "GDP (PPP) in thousands") +
+  labs(title = "GDP") +
+  theme_void() + 
+  theme(legend.position = "left")
+
+nightlights_plot = ggplot() +
+  geom_sf(data=sf_2_extract, aes(fill = nl_ml)) +
+  scale_fill_viridis(option = "viridis", name = "Night lights in billions") +
+  labs(title = "Night lights") +
+  theme_void()
+
+ggarrange(gdp_plot, nightlights_plot, ncol = 2, nrow = 1)
+```
+
+Just comparing the maps of both the regional and the district level one can get to the same conclusion that there seems to be a relationship between night lights and GDP.
+
+# 4. Grid level
+**Inspect the relationship between the two variables on the grid level! Bring both raster objects into the same projection and resolution and stack them. Create a scatter plot that shows the grid-level values of both variables against each other.**
+
+```{r}
+projection(gdp_1) == projection(nightlights_1)
+```
+
+Same projection, so same extent and resolution for both layers :)
+
+```{r warning = FALSE}
+extent_1 = extent(gdp_1)
+nightlights_raster_1 = raster(extent_1, res=0.05)
+nightlights_raster_1 = fasterize(sf_1_extract, nightlights_raster_1, field = "nightlights")
+crs(nightlights_raster_1) <- proj
+
+gdp_raster_1 = raster(extent_1, res=0.05)
+gdp_raster_1 = fasterize(sf_1_extract, gdp_raster_1, field = "gdp")
+crs(gdp_raster_1) <- proj
+
+raster_1 = stack(gdp_raster_1, nightlights_raster_1)
+raster_df_1 = as.data.frame(raster_1, xy = TRUE)
+raster_df_1 <- rename(raster_df_1, gdp = layer.1) 
+raster_df_1 <- rename(raster_df_1, nightlights = layer.2) 
+```
+
+```{r warning = FALSE}
+extent_2 = extent(gdp_2)
+nightlights_raster_2 = raster(extent_2, res=0.05)
+nightlights_raster_2 = fasterize(sf_2_extract, nightlights_raster_2, field = "nightlights")
+crs(nightlights_raster_2) <- proj
+
+gdp_raster_2 = raster(extent_2, res=0.05)
+gdp_raster_2 = fasterize(sf_2_extract, gdp_raster_2, field = "gdp")
+crs(gdp_raster_2) <- proj
+
+raster_2 = stack(gdp_raster_2, nightlights_raster_2)
+raster_df_2 = as.data.frame(raster_2, xy = TRUE)
+raster_df_2 <- rename(raster_df_2, gdp = layer.1) 
+raster_df_2 <- rename(raster_df_2, nightlights = layer.2) 
+```
+
+
+```{r, warning=F, message=F}
+raster_df_1 <- raster_df_1 %>% 
+  mutate(gdp_bl = gdp/1000000000, nl_ml = nightlights/1000)
+
+plot_3 <- ggplot(raster_df_1, aes(x=gdp_bl, y=nl_ml)) + 
+  geom_point() + 
+  geom_smooth(method=lm, color = "darkblue") +
+  labs(title="Relationship of GDP and night lights on the regional level (raster data)",
+       x = "Night lights in billions", 
+       y = "GDP (PPP) in thousands") +
+  theme_bw() +
+  theme(plot.title = element_text(size = 14))
+plot_3
+```
+
+```{r, warning=F, message=F}
+raster_df_2 <- raster_df_2 %>% 
+  mutate(gdp_bl = gdp/1000000000, nl_ml = nightlights/1000)
+
+plot_4 <- ggplot(raster_df_2, aes(x=gdp_bl, y=nl_ml)) + 
+  geom_point() +
+  geom_smooth(method=lm, color = "darkblue") +
+  labs(title="Relationship of GDP and night lights on the district level (raster data)",
+       x = "Night lights in billions", 
+       y = "GDP (PPP) in thousands") +
+  theme_bw() +
+  theme(plot.title = element_text(size = 14))
+plot_4
+```
+
+Same conclusion like above when using the raster data for the plots :)
+
+# 5. Relationship change with the subnational level?
+**How does the relationship change with the subnational level? Does the relationship look the same for each level or are there any differences?**
+
+The relationship does not really differ between the two subnational levels ,-) Although, at the district (=department) level the positive relationship between night lights and GDP does not seem to hold for departments with a night light level above 50 billion while the relationship is quite pronounced at the department level below light night of 50 billion. At the regional level Paris seems to be the biggest outlier with the highest GDP but a relatively even higher level of night lights.
+
+
+***
+How long did it take to knit the document:
+```{r}
+end <- Sys.time()
+end-start
+```

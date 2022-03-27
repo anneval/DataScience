@@ -1,0 +1,63 @@
+﻿V1;V2
+gender;gender
+age in years (at election day);age
+federal state;bundesland
+days left until election day;w1_dte
+political interest;w1_q1
+important issue: coded at level 1;w1_q2_level1
+important issue: coded at level 2;w1_q2_level2
+important issue: coded at level 3;w1_q2_level3
+econ. situation austria: retrospective (past 12 months);w1_q3
+personal financial situation: retrospecitve (past 12 months);w1_q4
+opinion: politics should fight social inequality;w1_q5x1
+opinion: welfare state makes people idle and lazy;w1_q5x2
+opinion: fight unemployment, even at expense of high national debt;w1_q5x3
+opinion: politics should keep out of economy;w1_q5x4
+opinion: income differences are too large in austria;w1_q5x5
+satisfaction with democracy: austria;w1_q6
+satisfaction with current federal government (spoe-oevp);w1_q7
+feeling close to: place of residence;w1_q8x1
+feeling close to: federal state;w1_q8x2
+feeling close to: austria;w1_q8x3
+feeling close to: europe;w1_q8x4
+opinion: immigrants should adapt to austrian customs;w1_q10x1
+opinion: immigrants enrich austrian culture;w1_q10x2
+opinion: immigrants are good for the austrian economy;w1_q10x3
+opinion: immigrants take away austrian jobs;w1_q10x4
+opinion: crime rates increase in austria because of immigrants;w1_q10x5
+opinion: immigrants pay more into the social security system;w1_q10x6
+left-right self-placement;w1_q12
+closeness to a political party;w1_q13
+closer to one party than to another;w1_q14
+degree of closeness to party;w1_q16
+opinion: favor women with equal qualification at job application;w1_q17x1
+opinion: police authorities should be extended;w1_q17x2
+opinion: immigration to austria only in exceptional cases;w1_q17x3
+opinion: protect environment, even if life becomes more expensive;w1_q17x4
+opinion: today's youth will have a better life than their parents;w1_q17x5
+opinion: 'compromises' in politics means betraying one's principles;w1_q19x1
+opinion: politicians only care about the interests of the rich and powerful;w1_q19x2
+opinion: most politicians are trustworthy;w1_q19x3
+opinion: the parties are the main problem in austria;w1_q19x4
+opinion: have a strong leader in government who decides alone;w1_q19x5
+opinion: the people should take most important decisions, not politicians;w1_q19x6
+opinion: prefer independent citizen instead of a party member;w1_q19x7
+opinion: corporations and not the government decide over politics;w1_q19x8
+knowledge: voting age;w1_q20
+knowledge: parliamentary threshold;w1_q21
+probability to vote;w1_q23
+party choice: prospective;w1_q24
+austrian citizenship;w1_sd3
+country of birth r. - recoded;w1_sd5r
+highest level of education;w1_sd6
+net household income;w1_sd7
+current personal situation;w1_sd8
+job situation;w1_sd9
+current type of occupation;w1_sd10
+previous type of occupation;w1_sd12
+religious affiliation - recoded;w1_sd15r
+attendence of religious services;w1_sd16
+union membership;w1_sd17
+household size - recoded;w1_sd21r
+first-time voter;w1_jw
+categorized population number (municipality) ;popnum

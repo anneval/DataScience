@@ -1,0 +1,274 @@
+---
+title: "Regression and Classification Trees, Cross Validation - Homework"
+author: "GROUP 4: Leonard Fidlin (h01352705), Daniel Jost (h01451889), Anne Valder (h11928415)"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 2
+    number_sections: false
+subtitle: Data Science and Machine Learning 2187 & 2087
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(include = TRUE)
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(error = TRUE)
+knitr::opts_chunk$set(fig.align = 'center')
+```
+
+# Classification Tree with the Voting Input data
+The data contains prospective voting decisions in the 2017 parliamentary election in Austria as well as a set of predictors which correspond to different questions of the survey. 
+
+First we install and load some required packages. 
+```{r echo=T, message=FALSE, error=FALSE, warning=FALSE}
+library(rpart)
+library(rpart.plot) 
+library(precrec)
+library(caret)       
+library(party)
+library(tidyverse)
+library(vcd)
+library(RColorBrewer)
+library(knitr)
+library(glmnet)     
+
+```
+
+Here we set the relative working directory and read in the voting data set. After inspecting the data we clean it by mutating and renaming some of the variables we want to use now & later on. On top, we change w1_q24 (prospective party choice) our dependent variable to a factor and rename it. 
+
+```{r}
+data_path = "."
+
+voting <- read_delim(file.path(data_path, "voting.csv"), ";", 
+                      escape_double = FALSE, col_types = cols(), 
+                      locale = locale(decimal_mark = ",", grouping_mark = "."), trim_ws = TRUE)
+summary(voting)
+
+voting <- voting %>% mutate(gender = as.factor(na_if(gender, "Prefer not to say")), 
+                    male = recode(gender, "Male" = 1, "Female" = 0),
+                    relig = na_if(w1_sd15r, "refuse"),
+                    left_right = replace(w1_q12, w1_q12 > 10, NA),
+                    satis_democ = replace(w1_q6, w1_q6 > 5, NA),
+                    opinion_immigr2 = replace(w1_q17x3, w1_q17x3 > 5, NA),
+                    vote = as.factor(w1_q24)) %>%
+                    drop_na(male) %>% 
+                    rename(
+                          "income" = w1_sd7,
+                          "migration_pos" = w1_q10x2)
+class(voting$vote)
+
+# For the last task we here already specify the ÖVP dummy variable!
+
+voting <- voting %>% mutate(vp = ifelse(vote == "ÖVP" , 1, 0), 
+                    vp_vote = factor(vp, labels = c("Yes","No")))
+```
+
+# **Task 1** Classification tree using cross validation
+**Estimate a classification tree using cross validation predicting the variable $w1_q24$ which is the prospective party choice.**
+
+In order to estimate a classification tree we have different options. First, we will manually do cross validation. Later on, we will estimate a classification tree using the caret package and tune the parameters. The tree is a set of rules which will tell us who voted for whom depending on the given criteria provided. 
+
+We start by separating the voting data into train and test data. As usual, the test data set is smaller because we do not want to lose a lot of observations when training the model. This also increases the predictive power of our model. 
+
+```{r}
+set.seed(123)
+
+voting <- voting %>%
+  mutate(train_index = sample(c("train", "test"), nrow(voting), replace=TRUE, prob=c(0.85, 0.15)))
+
+train <- voting %>% filter(train_index=="train")
+test <- voting %>% filter(train_index=="test")
+```
+
+Next, based on our expectations about what could most likely influence the prospective party choice we specify a formula and use the rpart package to create the tree from the test data. Thus, we partition the space spanned by input variables and fit a simple piecewise linear function. The main tuning parameter complexity is set arbitrarily to cp=.01. After estimating the tree we call the rpart-object to get the splits and terminal nodes of the tree. When specifying the formula (to estimate the response within a bin), we do not include all variables since this would likely lead to overfitting.
+
+```{r}
+formula <-  vote ~ age + male + satis_democ + migration_pos + left_right + opinion_immigr2 + relig
+tree <- rpart(formula, data = train, cp=.01)
+tree
+```
+From calling the rpart-object we see that we have a tree with 9 nodes, 5 terminal nodes and 4 splits. We start at the root node, which represents the entire population of the sample. From there we go down numerically to the next node. At the root node the tree splits using the criteria left_right>=4.5. This means if the left-right self-palcement is higher or equal to 4.5 the tree splits into the parent nodes SPÖ if "no" (=3)) or ÖVP if "yes" (=2)). From the ÖVP node the tree splits again with the satis_democ criterion if lower than 2.5 we are in the terminal ÖVP node (=5)). Otherwise we are in the FPÖ node (=4)). Where we split into the terminal FPÖ node (=8)) and the ÖVP node (=9)) using left_right placement criterion criterion being larger or equal to 7.5. In node 9) we have another split depending on the age criterion. If age is larger than 49.5 we are in the terminal node ÖVP (=19)). If age is smaller 49.5 we are in the terminal node FPÖ (=18)). The classes NEOS, Greens and other are unused in our tree.
+
+## Extension with caret and CV
+
+Now we turn to the estimation of the classification tree using the caret package. First, we use the trainControl function to specify how the samples should be split and which type of CV we want to apply. Here we use repeated cross validation, with 10 Kfolds repeating 10 times to reduce the variance of the performance measures we get. With summaryFunction we can specify some function that computes performance measures, which we can use for selecting the optimal parameters. Since we are having a multiclass problem here we use multiClassSummary.
+
+```{r}
+control <- trainControl(method = "repeatedcv", number = 10, repeats = 10, savePredictions = T, classProbs = T, summaryFunction = multiClassSummary)
+```
+
+Next, we create a tuning grid that determines which values for the tuning parameters should be used. For every different combination of values train will perform cross validation. Here we only set the values for cp our complexity parameter.
+
+```{r}
+tuning_grid <- expand.grid(cp = seq(0, 0.02, by= 0.005))
+tuning_grid
+```
+
+When we estimate the tree tuned with caret we get a similar tree to the one on the slides.
+
+```{r, warning=FALSE}
+
+tree_caret <- train(data = voting, formula , method = "rpart", trControl = control, tuneGrid = tuning_grid, metric = "ROC", na.action = na.pass)
+tree_caret
+
+```
+
+When running this algorithm we get that the optimal cp = 0.005. 
+
+# **Task 2** Tree graph
+Plot a tree graph of the model with the best performance. Explain how you come to your prediction in one of the terminal nodes.
+
+Vote overview
+```{r}
+table(voting$vote)
+```
+
+Colour palette for possible party outcomes
+```{r}
+party <- list("lightblue", "lightgreen", "turquoise", "pink")
+```
+
+To show the two different models we tried out so far we plot both graphs. The the second tree, the caret tree, is of course performing better! 
+```{r}
+# Model based on "manual" tree
+rpart.plot(tree, box.palette=party, nn=FALSE, type=2)
+```
+
+```{r}
+# Model based on tree_caret
+tree_caret_final <- tree_caret$finalModel
+rpart.plot(tree_caret_final, box.palette=party, nn=FALSE, type=2)
+```
+Now we look at the tree when using the caret package. As explained before when looking at the rpart-object we start in the root node (our positive class) and from there start going down to the next node defined by the rules at which the tree splits. As visulaized we end up with 11 terminal nodes and 10 splits. Here we also see the probability of the parties receiving a vote based on the splitting rules. For example take the terminal node to the right, SPÖ (15%), we get here by starting at the root node. The first split happens on whether the left_right self-placement is larger or equal to 5 if this is not the case (with a probability of 35% we are in the parent node SPÖ. From here if opinion_immigr2 is smaller 4 we end up in the terminal node SPÖ with a probability of 15%. The classes NEOS and other are still unused in the caret tree.
+
+# **Task 3** Confusion matrix
+
+In order to assess and compare the performance of the two models we create a confusion matrix. We use the test data since in the training data our model is always more accurate:
+
+```{r}
+# Model based on "manual" tree
+test$prediction_tree <- predict(tree, newdata = test, type = c("class"))
+confusion <- confusionMatrix(test$vote, test$prediction_tree,positive = "ÖVP", mode="sens_spec")
+confusion
+```
+
+```{r}
+# Model based on tree_caret
+test$prediction_tree_caret <- predict.train(tree_caret, newdata = test, type = c("raw"), na.action = na.rpart)
+confusion <- confusionMatrix(test$vote, test$prediction_tree_caret,positive = "ÖVP", mode="sens_spec")
+confusion
+
+```
+
+Looking at the important measures of both models in the confusion matrix we see that in the model we estimated doing CV manually, both accuracy and kappa are as expected smaller. This indicates that the model we estimated using the caret package performs better! Considering the sensitivity and specificity we also see that the tree_caret performs better in almost all of the classes than with the simple tree model. Furthermore, balanced accuracy improved for FPÖ, Greens, ÖVP and SPÖ. In general the accuracy and kappa for both models are not really high, with only about 0.5165 and 0.3209 respectively. To get a better overview of the trade-off between the indicators of the confusion matrix we should look at ROC curves. Moreover, with caret our p-value decreased, altough still not being significant.
+
+**Regarding which two categories do you find the highest and lowest sensitivity?**
+
+We have the highest sensitivity or a vote outcome for FPÖ (model: tree_caret) with a probability of 62,96% and the lowest in Greens with a probability of 35,48%. 
+
+**How well would you judge the predictive performance of the model?**
+
+Given the accuracy rate and the kappa value the predictive performance of the model, the predictive performance is not very good! (see above). Our tree just assigns a bit more than 50% of the votes to the true party. Also the no information rate is very high and clearly not significant from zero. Therefore, the tree does not estimate differently from a naive classifier.
+
+**What would be the "naive prediction" in such a multiclass prediction problem?**
+
+The naive prediction is that a voter votes for ÖVP (positive class).
+
+# **Task 4** 
+**Estimate the model across a wide range of parameters of the model and plot the accuracy in the training and in the test data against the parameters. What can you see? what problem does this relate to?**
+
+In order to estimate the model across a wider range of parameters of the model we use differently tuned parameters. Since in our first model we already used a rather small complexity parameter we here lower the frequency of the steps in between. Leading to a larger tuning grid and more cp to try out. Another possibility would be to also increase / change the type of CV. Due to the time constraint we refrain from this here. We then plot the training and test data against the parameters.  
+
+```{r, warning = FALSE}
+
+control_new <- trainControl(method = "repeatedcv", number = 10, repeats = 10, savePredictions = T, classProbs = T, summaryFunction = multiClassSummary)
+
+tuning_grid_new <- expand.grid(cp = seq(0, 0.01, by= 0.001))
+tuning_grid_new
+```
+
+
+```{r, warning = FALSE}
+tree_caret_train <- train(data = train, formula , method = "rpart", trControl = control_new, tuneGrid = tuning_grid_new, metric = "Accuracy", na.action = na.pass)
+tree_caret_train
+```
+```{r}
+plot(tree_caret_train)
+```
+Plotting the accuracy in the train data set against the parameter, we see that when increasing the cp parameter (complexitiy, minimum improvement in the model required at each nod) at first accuracy increases and peaks at 0.002 our optimum value (accuracy level > 0.5. Further increasing cp leads to less accuracy. Increasing cp is equivalent to being more restrictive when adding new splits. 
+
+```{r, warning = FALSE}
+tree_caret_test <- train(data = test, formula , method = "rpart", trControl = control_new, tuneGrid = tuning_grid_new, metric = "Accuracy", na.action = na.pass)
+tree_caret_test
+```
+
+```{r}
+plot(tree_caret_test)
+```
+Plotting the test data set against the parameter, we see a upwards trend. Increasing the complexity parameter leads to higher accuracy. Accuracy is highest at cp = 0.007.
+
+# **Task 5** Simplified model
+**Simplify the model by only trying to predict if somebody voted for the ÖVP or not, re-estimate the model (again by using CV) as well as estimating a logit model in the training data utilizing whatever variables you find appropriate**
+
+The new dummy variable vp which takes the value 1 for ÖVP and 0 otherwise we use here was already created in the beginning. We already specified it in the beginning so that we do not need to seperate the test and training data again. We have a binary classification instead of the multi-class version here. We specify a new formula with our dummy as dependent variable and then use rpart to estimate the tree. Then we compute the confusion model. Second, we estimate a logit model and also compute the confusion matrix to compare the two models and their performance.
+
+# Simplified Tree Model 
+```{r}
+formula_vp <-  vp_vote ~ age + male + satis_democ + migration_pos + left_right + opinion_immigr2 + relig
+
+tree_vp <- rpart(formula_vp, data = train, cp = 0.005)
+tree_vp
+```
+
+```{r}
+rpart.plot(tree_vp, box.palette=party, nn=FALSE, type=2)
+```
+
+# Logit model
+
+```{r}
+logit_vp <- glm(formula_vp, 
+             data = train, family = "binomial")
+
+summary(logit_vp)
+```
+
+# **Task 6** Confusion matrix and ROC-curves
+**Compute the confusion matrix and ROC-curves for both models. Which one performs better and why? Where would you set the cut-off-point?** 
+
+# Confusion Matrix simplified tree model
+```{r}
+test$prediction_tree_vp <- predict(tree_vp, newdata = test, type = c("class"))  
+test <- test %>%  
+  drop_na(prediction_tree_vp) 
+
+confusion <- confusionMatrix(test$vp_vote,test$prediction_tree_vp) 
+confusion
+```
+
+```{r, warning=FALSE}
+test$prediction_logit <- predict(logit_vp, newdata = test, type = "response")
+
+test <- test %>%  
+  mutate(prediction_logit=as.factor(ifelse(prediction_logit>0.5,"Yes","No"))) %>%  
+  drop_na(prediction_logit) 
+
+confusion <- confusionMatrix(test$vp_vote, test$prediction_logit)
+confusion
+```
+As we expected, when looking at the confusion matrices of the two model, our tree outperforms the logit model! The optimal classification tree has a higher accuracy, higher kappa value and higher sensitivity and specificity. Also the p-value is slightly smaller, although still far away from significance! Moreover unfortunately in both models our no-info rate is still pretty high. Nonetheless, overall the tree performs better than the logit model. The graph should suggest similar results.
+
+ROC 
+```{r}
+test$prediction_tree_scores <- predict(tree_vp, test ,type = c("prob"))[,2] 
+test$prediction_logit_scores <- predict(logit_vp, test ,type = c("response")) 
+ 
+precrec_obj <- evalmod(scores = cbind(test$prediction_tree_scores, test$prediction_logit_scores), labels = cbind(test$vp_vote,test$vp_vote),modnames = c("classification tree","logit"), raw_curves = FALSE, ties_method="first")
+
+autoplot(precrec_obj)
+```
+
+From the ROC curves we see that the orange line (classification) is not always more outward than the blue line (logit). The orange line is only pushed further outward when we focus on a higher sensitivity and give up some of the specificity. The same is true for the logit model which seems to perform better when we focus on specificity and give up some sensitivity instead. Since it is a bit difficult to pin down the cutoff point based on the curves alone we suggest the point where sensitivity is around 0.75 while specificity is only between 0.3/0.4. Here the distance between the two curves is the largest. We prefer a higher value for sensitivity and a lower value for specificity since this gives us less false positives and therefore less chance of overestimating votes. 
+
