@@ -1,0 +1,263 @@
+---
+title: "Trees and Cross Validation"
+author: "Lukas Schmoigl"
+date: "11-2020"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 2
+    number_sections: yes
+    css: style.css
+subtitle: Data Science and Machine Learning 2187 & 2087
+editor_options:
+  chunk_output_type: inline
+---
+
+This document aims at providing you with some example code to create trees and perform cross validation. For a more detailed discussion on the topic consult the slides and the recordings of the class.
+
+```{r echo=T, message=FALSE, error=FALSE, warning=FALSE}
+library(rpart)
+library(rpart.plot) 
+library(precrec)
+library(caret)
+library(party)
+
+library(tidyverse)
+library(vcd)
+library(RColorBrewer)
+library(viridis)
+library(knitr)
+library(tinytex)
+library(wooldridge)
+library(glmnet)
+
+# library(remotes)
+# remotes::install_github("grantmcdermott/parttree")
+# library(parttree)
+source("parttree-master/R/parttree.R")
+source("parttree-master/R/geom_parttree.R")
+
+titanic <- read_delim("titanic.csv", ";", 
+                      escape_double = FALSE, col_types = cols(age = col_number()), 
+                      locale = locale(decimal_mark = ",", grouping_mark = "."), trim_ws = TRUE)
+
+titanic$survived_label = factor(titanic$survived, labels = c("Died","Survived"))
+```
+
+
+
+# Classification Tree with the Titanic Data
+
+
+Firstly, we want to try to estimate a tree and do cross validation manually using a simple hold-out. The two samples are created easily from the main data.
+
+```{r, echo=T, out.width="100%",fig.align="center"}
+set.seed(123) ## for same sample
+
+titanic <- 
+  titanic %>%
+  mutate(train_index = sample(c("train", "test"), nrow(titanic), replace=TRUE, prob=c(0.75, 0.25)))
+
+titanic_train <- titanic %>% filter(train_index=="train")
+titanic_test <- titanic %>% filter(train_index=="test")
+```
+
+As mentioned in class there a different implementations of decision trees in R. Here we use the package `rpart` which implements the original idea by Breiman. For now we set the main tuning parameter arbitrarily to `cp=.01`. There are additional arguments that can be set restricting the complexity of the tree such as `minsplit`, `maxdepth`. While creating the tree we only use the test data. By calling the `rpart`-object we get the splits and terminal nodes of the tree. By calling `summary(tree)` we get a more detailed description of the nodes.
+
+```{r}
+tree <- rpart(survived_label ~ pclass + age + sex + parch + fare + sibsp + embarked, data = titanic_train, cp=.01)
+tree
+#summary(tree)
+```
+
+Any easy way to plot our tree object is shown beneath using the package `rpart.plot`. The argument `type=2`specifies the provided statistics and appearance of the tree. There a different packages that include other implementations of tree graphs such as. For your assignments you may experiment with other packages or the arguments in `rpart.plot`.
+
+```{r, out.width = "90%", fig.align="center"}
+rpart.plot(tree, box.palette="RdBu", nn=FALSE, type=2)
+```
+
+Let us have a look at how well our model performs in terms of the confusion matrix and associated measures. In the training  data our model is always more accurate:
+
+
+```{r}
+titanic_train$prediction_tree <- predict(tree, newdata = titanic_train, type = c("class")) 
+confusion <- confusionMatrix(titanic_train$survived_label, titanic_train$prediction_tree)
+confusion
+```
+
+In the test data set we get a better judgment of how well our predictions perform:
+
+```{r}
+titanic_test$prediction_tree <- predict(tree, newdata = titanic_test, type = c("class"))
+confusion <- confusionMatrix(titanic_test$survived_label, titanic_test$prediction_tree, 
+                             positive = "Died", mode="sens_spec")
+confusion
+```
+
+
+Now let us estimate a logit model and compare the performance of both models in the test data set.
+
+```{r}
+logit <- glm(survived_label ~ pclass + age + sex + parch + fare + sibsp + embarked, 
+             data = titanic_train, family = "binomial")
+
+titanic_test$prediction_logit <- predict(logit, newdata = titanic_test, type = c("response"))
+
+titanic_test <- titanic_test %>% 
+  mutate(prediction_logit=as.factor(ifelse(prediction_logit>0.5,"Survived","Died"))) %>% 
+  drop_na(prediction_logit)
+
+confusion <- confusionMatrix(titanic_test$survived_label, titanic_test$prediction_logit)
+confusion
+```
+
+
+One way to visualize the performance of the models are ROC-curves. Here we use the package `precrec`, others include `ROCR`,`pROC`, `plotROC` or `ROCit`. Instead of using predicted classes, we have to extract the scores of one of the classes to achieve this. Notice that for different model objects, the predict function allows different types of output such as classes, probabilities, scores etc...
+
+```{r, out.width = "80%", fig.align="center", warning=F}
+titanic_test$prediction_tree_scores <- predict(tree, titanic_test ,type = c("prob"))[,2]
+titanic_test$prediction_logit_scores <- predict(logit, titanic_test ,type = c("response"))
+
+precrec_obj <- evalmod(scores = cbind(titanic_test$prediction_tree_scores, titanic_test$prediction_logit_scores), 
+                       labels = cbind(titanic_test$survived,titanic_test$survived), 
+                       modnames = c("classification tree","logit"),
+                       raw_curves = FALSE, ties_method="first")
+autoplot(precrec_obj)
+auc(precrec_obj)
+```
+
+Like on the slides we can also plot the partitioning of the support space for a simpler tree.
+
+```{r, out.width = "80%", fig.align="center", warning=F}
+titanic_train$survived = factor(titanic_train$survived, labels = c("Died","Survived"))
+
+tree <- rpart(survived ~ pclass + age, data = titanic_train, cp=.02)
+
+titanic_train %>%
+  ggplot(aes(x=pclass, y=age)) +
+  geom_parttree(data = tree, aes(fill=survived), alpha = 0.2) +
+  geom_jitter(aes(col=survived), alpha=1) +
+  theme_minimal() +
+  scale_color_manual(values=brewer.pal(11,"RdBu")[c(3,9)]) +
+  scale_fill_manual(values=brewer.pal(11,"RdBu")[c(3,9)])
+```
+
+
+Now we turn to the `caret` package which assists us in specifying the cross validation process and the tuning parameters. In `trainControl` we specify how the samples should be split and which type of CV we want to apply. Furthermore with the argument `summaryFunction` we can specify some function that computes performance measures for us, which we can use for selecting the optimal parameters. If we don't specify any function, we can later only choose between metrics that are provided as a default.
+
+```{r, out.width = "100%", out.height = "50%", warning=F}
+control <- trainControl(method = "repeatedcv", number = 10, repeats = 10,
+                        savePredictions = T, classProbs = T, summaryFunction = twoClassSummary)
+```
+
+Next we create a tuning grid that determines which values for the tuning parameters should be used. For every different combination of values `train` will perform cross validation. Here we only need to set the values for `cp` which is basically the alpha value in the slides.
+
+```{r, out.width = "100%", out.height = "50%", warning=F}
+tuning_grid <- expand.grid(cp = seq(0.001, 0.01, by= 0.001))
+tuning_grid
+```
+
+In the `train`-function we can specify the metric, which we want to optimize over our tuning grid and the method we want to apply. Depending on the method and the provided summary statistics, the available metrics change.
+
+```{r, out.width = "100%", out.height = "50%", warning=F}
+tree_caret <- train(data=titanic, survived_label ~ pclass + age + sex + parch + fare + sibsp + embarked,
+                    method="rpart", trControl = control, tuneGrid = tuning_grid, metric="ROC", na.action = na.pass)
+
+tree_caret
+
+```
+
+We can extract the final model from the `caret`-object to again plot the final tree.
+
+```{r, out.width = "100%", out.height = "50%", warning=F}
+tree <- tree_caret$finalModel
+rpart.plot(tree, box.palette="RdBu", nn=FALSE, type=2)
+```
+
+To predict outcomes with an `train` object we should use the `predict.train` since there pre-processing steps might be applied. In this way we can for example compare our predictions from the model to our original test data set.
+
+```{r, warning=F}
+# control <- trainControl(method = "LOOCV", number = 10,
+#                         savePredictions = T, classProbs = T, summaryFunction=twoClassSummary)
+# 
+# tree_caret <- train(data=titanic_train, survived_label ~ pclass + age + sex + parch + fare + sibsp + embarked,
+#                     method="rpart", trControl = control, tuneGrid = tuning_grid, metric="ROC", na.action = na.pass)
+
+titanic_test$prediction_tree <- predict.train(tree_caret, newdata = titanic_test, type = c("raw"))
+confusion <- confusionMatrix(titanic_test$survived_label, titanic_test$prediction_tree, 
+                             positive = "Died", mode="sens_spec")
+confusion
+```
+
+Let's have a look at if our model got better at predicting.
+
+```{r, out.width = "80%", fig.align="center", warning=F}
+titanic_test$prediction_caret_scores <- predict.train(tree_caret, titanic_test ,type = c("prob"))$Survived
+
+precrec_obj <- evalmod(scores = cbind(titanic_test$prediction_tree_scores, titanic_test$prediction_logit_scores, titanic_test$prediction_caret_scores), 
+                       labels = cbind(titanic_test$survived,titanic_test$survived,titanic_test$survived), 
+                       modnames = c("classification tree","logit","classification tree (optimized)"),
+                       raw_curves = FALSE, ties_method="first")
+autoplot(precrec_obj)
+```
+
+Notice that we are not limited to a specific estimator or package while using `caret`. For example we could use a different implementation of a classification tree from the `party` package.
+
+```{r, warning=F}
+tuning_grid <- expand.grid(mincriterion = seq(0.02,0.20, by= 0.02))
+tree_caret <- train(data=titanic, survived_label ~ pclass + age + sex + parch + fare + sibsp + embarked,
+                    method="ctree", trControl = control, tuneGrid = tuning_grid, metric="ROC", na.action = na.pass)
+
+tree_caret
+```
+
+
+# Regression Tree with the Wooldridge Data
+
+In a very similar fashion, we can tackle a regression problem with `rpart`and `caret`. Here is an example where we would split the data set and compute the relevant performance measure manually.
+
+```{r, warning=F}
+set.seed(12)
+train_index <- sample(seq_len(nrow(wage2)), size = nrow(wage2)*0.80)
+wage2_train <- wage2[train_index, ]
+wage2_test <- wage2[-train_index, ]
+wage2 <- wage2
+
+tree <- rpart(data=wage2 %>% select(-wage, -brthord, -feduc, -meduc), lwage ~ ., cp=0.1)
+wage2_test$predicted_tree <- predict(tree, newdata=wage2_test)
+
+sqrt(sum((wage2_test$lwage-wage2_test$predicted_tree)^2/nrow(wage2_test),na.rm=T))
+```
+
+Again, the `train` function helps us to automatically perform CV and determine the optimal value of the tuning parameter.
+
+```{r, out.width = "100%", out.height = "50%", warning=F}
+control <- trainControl(method = "repeatedcv", number = 10, repeats = 10,
+                        savePredictions = T)
+
+tuning_grid <- expand.grid(cp = seq(0.005, 0.1, by= 0.005))
+
+tree_caret <- train(data=wage2 %>% select(-wage, -brthord, -feduc, -meduc), lwage ~ .,
+                    method="rpart", trControl = control, metric="RMSE", na.action = na.pass)
+
+tree_caret
+```
+
+
+As an alternative we might use the shrinkage methods LASSO or Ridge Regression. Once again we can easily use some other method within `train`.
+
+```{r, warning=F}
+control <- trainControl(method = "repeatedcv", number = 10, repeats = 10,
+                        savePredictions = T)
+
+tuning_grid <- expand.grid(alpha = c(0,1), lambda = c(0.02,0.002))
+
+shrinkage <- train(data=wage2_train %>% select(-wage, -brthord, -feduc, -meduc), lwage ~ .,
+                    method = "glmnet", trControl = control, tuneGrid = tuning_grid, metric="RMSE")
+
+shrinkage
+```
+
+Although this might not be the best data set to show the advantages of both methods...
+
+

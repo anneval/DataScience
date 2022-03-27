@@ -1,0 +1,136 @@
+---
+title: "Random Forests and Boosted Regression Trees - Homework"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 2
+    number_sections: false
+editor_options: 
+  chunk_output_type: inline
+
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(include = TRUE)
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(fig.align = 'center')
+
+```
+
+<br>
+
+**This assignment is due on December 7.**
+
+**Please use the corresponding R Markdown file to save your results in an HTML file. Then upload the HTML file to learn.wu.ac.at.**
+
+<br>
+
+# Input data
+
+Install and load the required packages.
+
+```{r, echo=TRUE, results='hide', warning=FALSE, message=FALSE}
+
+# Load packages
+library(plyr)
+library(tidyverse)
+library(data.table)
+library(fst)
+library(ranger)
+library(xgboost)
+library(caret)
+library(viridis)
+
+```
+
+Adjust the data path and load the input data.
+
+```{r}
+
+# Set the path to the data
+data_path = "/Users/annevalder/Desktop/UNI /WU WIEN/WS 20:21/Data Science/Exercises/RCTCV_A2"
+
+# Read input data on municipal level for the whole country
+col_input = read_fst(file.path(data_path, "data", "colombia_input.fst"))
+
+# Read input data on grid level for the department Quindío
+quindio_grid = read_fst(file.path(data_path, "data", "quindio_input_grid.fst"))
+
+```
+
+# Data Visualization and Exploratory Data Analysis
+
+## Exercise 1
+
+Use the input data for Colombia on the municipal level (colombia_input.fst) for this exercise
+
+### 1.1
+
+Create a plot that shows the distribution of the popualtion density (raster_pop_100). Briefly describe what you see.
+```{r}
+
+col_input %>% ggplot(aes(x=raster_pop_100)) + geom_density() +
+
+```
+
+
+
+### 1.2
+
+Create a plot that visualizes the relationship between the population density (raster_pop_100) and the light intensity recorded at night (night_lights_100). Combine two suitable geom functions in one plot. Briefly describe what you see.
+
+plot(col_input$raster_pop_100,col_input$night_lights_100)
+
+
+## Exercise 2
+
+Use the grid-level input data for Quindío (quindio_input_grid.fst) for this exercise.
+
+### 2.1
+
+Create a plot the shows the distribution of the light intensity at night (night_lights_100). Include information on whether or not a grid lies inside a protected area (protected_areas_100). Briefly describe what you see.
+
+Hint: Transform the variable protected_areas_100 to character inside the ggplot or the geom function.
+
+### 2.2
+
+Create a plot that visualizes the relationship between the light intensity at night (night_lights_100) and the slope (hydro_slo_100). What could be a problem with a standard scatterplot? Try to solve this issue and briefly describe what you see.
+
+# Random Forests and Boosted Regression Trees
+
+## Exercise 3
+
+### 3.1
+
+Use the input data for Colombia on the municipal level (colombia_input.fst) to train a Random Forest. Use the log of the population density (raster_pop_100) as the dependent variable. Tune one of the parameters in the Random Forest. Briefly describe the parameter you are tuning and explain why you have decided for this parameter.
+
+### 3.2
+
+Use the best Random Forest model from the tuning exercise to make a prediction of the grid-level population density in Quindío. Make sure that the sums of the grid-level predictions match the official numbers on the municipal level.
+
+## Exercise 4
+
+### 4.1
+
+Use the input data for Colombia on the municipal level (colombia_input.fst) to train a Boosted Regression Tree. Use the log of the population density (raster_pop_100) as the dependent variable. Tune one of the parameters in the Boosted Regression Tree. Briefly describe the parameter you are tuning and explain why you have decided for this parameter.
+
+### 4.2
+
+Use the best Boosted Regression Tree model from the tuning exercise to make a prediction of the grid-level population density in Quindío. Make sure that the sums of the grid-level predictions match the official numbers on the municipal level.
+
+# Visualization of Results
+
+## Exercise 5
+
+Create a plot showing the following three maps of the population density in Quindío side by side: one based on the input data, one based on your Random Forest prediction, and one based on your Boosted Regression Tree prediction. Try to make sure that the maps give a good picture of the differences in population density, both between the different data sets as well as between the different parts of the department.
+
+
+
+
+
+<br>
+<br>
+<br>
+<br>
+

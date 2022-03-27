@@ -1,0 +1,498 @@
+---
+title: "02 Data Wrangling Homework"
+author: "Max Thomasberger"
+subtitle: "Data Science and Machine Learning 2187 & 2087"
+date: "11 2020"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 2
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+
+# deletes all objects from the environment
+rm(list=ls())
+
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(fig.align = 'center')
+
+# Loading libraries
+# You will have to install the missing libraries yourself
+
+library(tidyverse)
+library(babynames)
+library(nycflights13)
+
+
+# Toy data for the homework:
+
+
+pollution <- tribble(
+       ~city,   ~size, ~amount, 
+  "New York", "large",       23,
+  "New York", "small",       14,
+    "London", "large",       22,
+    "London", "small",       16,
+   "Beijing", "large",      121,
+   "Beijing", "small",       56
+)
+
+babynames <- data.frame(babynames)
+
+
+band <- tribble(
+   ~name,     ~band,
+  "Mick",  "Stones",
+  "John", "Beatles",
+  "Paul", "Beatles"
+)
+
+instrument <- tribble(
+    ~name,   ~plays,
+   "John", "guitar",
+   "Paul",   "bass",
+  "Keith", "guitar"
+)
+
+instrument2 <- tribble(
+    ~artist,   ~plays,
+   "John", "guitar",
+   "Paul",   "bass",
+  "Keith", "guitar"
+)
+
+```
+
+# PLEASE ENTER DETAILS ABOUT YOUR GROUP HERE
+
+We need your names and matricle numbers here! 
+
+DO NOT FORGET THIS!
+
+
+# Introduction
+
+Note: this Rmarkdown file downloads a 78 MB zip file from a server when you knit it.
+
+Please limit your outputs to the first few results using the **head()** function after filtering or re-arranging the data. If I recieve HTML files containing endless lists of names the respective group will get loose points!
+
+Here's how you should do it:
+
+```{r echo=TRUE}
+
+# This only shows the first few rows of the data frame after knitting
+
+babynames %>%
+  head()
+
+
+```
+
+18 points are possible for this homework. Each code chunk you enter is worth 1 point. The real world example is in total worth 6 points and a bit tricky but I am inclined to be generous if you at least try it. 
+
+The homework is due on Thursday 03-12-2020 at 23:59. Please upload your answers as HTML file to learn@WU. I will draw a random course participant on the Friday 04-12-2020 lecture to walk us through some of the exercises.
+
+# Select
+
+Alter the code below to select just the `prop` column:
+
+```{r echo=TRUE}
+select(babynames, name, prop) %>%
+  head()
+
+```
+
+
+# Filter 1
+
+Show:
+
+* All names where prop is greater than or equal to 0.05 and smaller than 0.8
+* All children named "Max" and "Moritz"
+* All of the rows that have a missing value for `name`.
+
+**Only display the first few results using the head() function.**
+
+```{r echo=TRUE}
+
+# Enter your solution here
+
+```
+
+# Filter 2
+
+Use Boolean operators to return only the rows of the babyname object that contain:
+
+* Girls named Max 
+* Names that were used by exactly 5 or 6 children in 1990 
+* Names that are one of Max, Moritz, or Wilhelm 
+
+**Only display the first few results using the head() function.**
+
+```{r echo=TRUE}
+
+# Enter your solution here
+
+```
+
+# Arrange
+
+Arrange babynames by `n`. Add `prop` as a second (tie breaking) variable to arrange on. Can you tell what the smallest value of `n` is?
+
+**Only display the first few results using the head() function.**
+
+```{r echo=TRUE}
+
+# Enter your solution here
+
+```
+
+# Desc
+
+Use `desc()` to find the names with the highest prop.
+
+Then, use `desc()` to find the names with the highest n.
+
+**Only display the first few results using the head() function.**
+
+```{r echo=TRUE}
+
+# Enter your solution here
+
+```
+
+# Steps and the pipe
+
+Use `%>%` to write a sequence of functions that: 
+
+1. Filter babynames to just the boys that were born in 1990  
+2. Select the `prop` and `name` columns  
+3. Arrange the results so that the most popular names are near the top.
+4. Only show the first few results using the head() function
+
+
+```{r echo=TRUE}
+
+# Enter your solution here
+
+```
+
+
+# Steps and the pipe
+
+Chain the following steps together using the pipe `%>%` operator.
+
+1. Trim `babynames` to just the rows that contain one of your `name`s and your `sex` (if your name is not in there use the name and sex of your favorite movie star)
+2. Using ggplot2 plot the results as a line graph with `year` on the x axis and `prop` on the y axis
+
+```{r echo=TRUE}
+
+# Enter your solution here
+
+```
+
+# Summarise
+
+Here some code to remind you how summarise works:
+
+```{r echo=TRUE}
+pollution %>% 
+ summarise(mean = mean(amount), sum = sum(amount), n = n())
+```
+
+Now use summarise() to compute three statistics about the babynames data:
+
+1. The first (minimum) year in the dataset  
+2. The last (maximum) year in the dataset  
+3. The total number of children represented in the data
+
+```{r echo=TRUE}
+
+# Enter your solution here
+
+```
+
+# Filtering and wrangling
+
+Extract the rows where `name == "Khaleesi"`. Then use `summarise()` and a summary functions to find:
+
+1. The total number of children named Khaleesi
+2. The first year Khaleesi appeared in the data
+
+```{r echo=TRUE}
+
+# Enter your solution here
+
+```
+
+# Split apply combine
+
+Here some code to remind you how `group_by()`  and  `summarise()` work:
+
+```{r echo=TRUE}
+pollution %>% 
+  group_by(city) %>%
+  summarise(mean = mean(amount), sum = sum(amount), n = n())
+```
+
+Now use `group_by()`, `summarise()`, and `arrange()` to display the ten most popular baby names using the `head(10)` command. Compute popularity as the total number of children of a single gender given a name.
+
+```{r echo=TRUE}
+
+# Enter your solution here
+
+```
+
+# Mutate
+
+Here some code to remind you how `mutate()` works:
+
+```{r echo=TRUE}
+babynames %>%
+  mutate(percent = round(prop*100, 2)) %>%
+  head()
+```
+
+Now use `min_rank()` and `mutate()` to rank each row in `babynames` from largest `n` to smallest `n`.
+
+**Only display the first few results using the head() function.**
+
+```{r echo=TRUE}
+
+# Enter your solution here
+
+```
+
+Compute each name's rank _within its year and sex_. 
+Then compute the median rank _for each combination of name and sex_, and arrange the results from highest median rank to lowest.
+
+```{r echo=TRUE}
+
+# Enter your solution here
+
+```
+
+# Joining data
+
+Here some code to remind you of the types of joins we looked at in class:
+
+```{r echo=TRUE}
+band %>% left_join(instrument, by = "name")
+band %>% right_join(instrument, by = "name")
+band %>% full_join(instrument, by = "name")
+band %>% inner_join(instrument, by = "name")
+```
+
+
+# Left join
+
+Which airlines had the largest arrival delays?  
+
+1. Join `airlines` to `flights`
+2. Compute and order the average arrival delays by airline. Display full names, no codes.
+
+```{r echo=TRUE}
+
+# Enter your solution here
+
+```
+
+
+# A real world example
+
+Look at the code below. What does it do exactly? Try to understand each line of code.
+
+```{r echo=T, message=FALSE, warning=FALSE, results=F}
+
+
+
+# create the download path for the zip file 
+# we will download the file into the temporary directory of your computer
+
+path <- file.path(tempdir(),"intrvw19.zip")
+
+# downloading the zip file if it does not exist in the temporary folder yet
+
+url <- "https://www.bls.gov/cex/pumd/data/comma/intrvw19.zip"
+
+if(! file.exists(path)) {
+
+download.file(url=url,
+              destfile=path,
+              mode="wb",
+              method="libcurl")
+}
+
+
+# unzip the files containing the string "fmli" in the name into the temporary directory
+
+files <- unzip(path,list=TRUE)
+
+files <- files[grepl("fmli",files$Name),]$Name
+    
+  
+unzip(path,
+      files=files,
+      #exdir="./data/rds",
+      exdir=tempdir(),
+      junkpaths=TRUE)
+
+# read in the household file for 2019 Q4
+
+household <- read_csv(file.path(tempdir(),"fmli194.csv")) %>%
+  
+    as.tibble() %>%
+    # Change all variable names to lower case
+    rename_all(tolower) 
+
+
+# unzip the files containing the string "memi" in the name into the temporary directory
+
+files <- unzip(path,list=TRUE)
+
+files <- files[grepl("memi",files$Name),]$Name
+    
+  
+unzip(path,
+      files=files,
+      #exdir="./data/rds",
+      exdir=tempdir(),
+      junkpaths=TRUE)
+
+# read in the person file for 2019 Q4
+
+person <- read_csv(file.path(tempdir(),"memi194.csv")) %>%
+  
+    as.tibble() %>%
+    # Change all variable names to lower case
+    rename_all(tolower) 
+
+```
+
+
+We (hopefully) just downloaded and unzipped two files of the American Consumer Expenditure Survey. If this does not work please let me know on teams. For more information see: https://www.bls.gov/cex/pumd.htm
+
+The files contain **A LOT** of information about US household spending. The survey is conducted quarterly and each quarterly data file is representative for the whole US population. 
+
+We now should have two objects in RAM:
+
+* The `household` object containing information about the whole household for Quarter 4 of 2019
+* The `person` object containing information about the household members for Quarter 4 of 2019
+
+Now have a look at the objects. As you can see there are a lot of variables in both object. To find more information about these variables consult the codebook: https://www.bls.gov/cex/pumd/ce_pumd_interview_diary_dictionary.xlsx
+
+
+
+## Average consumption per tenure status
+
+We want to calculate the population weighted average per capita consumption (consumption per household member) for all the different tenure status category for Quarter 4
+
+The goal of this exercise is to write a sequence of functions using the pipe operator `%>%` for the following data wrangling steps:
+
+### Select the following variables from the household object:
+
+* Household ID: **newid**
+* Total expenditure current quarter: **totexpcq**
+* Household Size: **fam_size**
+* Tenure status: **cutenure**
+* Houshold weight: **finlwt21**
+
+### Calculate the per capita consumption per household
+
+Create a new column called "exp_pc" using the variables *totexpcq* and *fam_size*.
+
+### Recode the tenure status variable using the case_when() command from dplyr 
+
+Use the codes shown below and read up on the command here: https://dplyr.tidyverse.org/reference/case_when.html
+
+* Owned with mortgage = 1
+* Owned without morgage = 2,3
+* Rented = 4,6
+* Occupied without payment of rent = 5
+
+### Calculate the population weighted mean per capita consumption per tenure status
+
+Use this formula to calculate the population weighted mean per tenure status. $\bar{X} = \frac{\sum^{n}_{i=1} {x_i * w_i}}{\sum^{n}_{i=1} {w_i}}$
+
+* Use the variable *finlwt21* as population weight. 
+* Do not use packages, do it on your own using dplyr synthax. 
+* How can the variable *finlwt21* be interpreted?
+
+```{r echo=TRUE}
+
+# Enter your solution here
+
+```
+
+
+### Create a bar plot that compares the population weighted mean per capita consumption per tenure status.
+
+Now use your result from above to create a bar plot using ggplot2. The nicer it looks the better.
+
+```{r echo=TRUE}
+
+# Enter your solution here
+
+```
+
+## Average age per tenure status
+
+We now want to calculate the average age per tenure status. For this we need to calculate the average age per household member and join this information to the household file. Do not bother with any population weighting for this data wrangling step.
+
+### Calculate the average age per household using the person file
+
+The age variable is called "age" in the person object.
+
+### Join the average age per household to the household file
+
+The foreign key is called newid
+
+### Calculate the average age per tenure status
+
+Use the population weights for this step
+
+```{r echo=TRUE}
+
+# Enter your solution here
+
+```
+
+### Create a bar plot that compares the average age per tenure status
+
+Now use your result from above to create a bar plot using ggplot2. The nicer it looks the better.
+
+
+```{r echo=TRUE}
+
+# Enter your solution here
+
+```
+
+
+### Calculate the population weighted per capita consumption per average household age 
+
+* Round the average age per household to integer values 
+* Use the split apply combine approach to calculate the population weighted per captia consumption per average household age
+* Arrange the results in an descending order
+* Display only the Top 10 results
+
+```{r echo=TRUE}
+
+# Enter your solution here
+
+```
+
+### Create an appropriate plot to display the data
+
+* Use the results from above and plot the data
+* What do you conclude about the functional form of this relationship?
+* Run a regression to test your hypothesis
+
+```{r echo=TRUE}
+
+# Enter your solution here
+
+```
+

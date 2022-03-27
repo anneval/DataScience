@@ -1,0 +1,298 @@
+---
+title: "Regression and Classification Trees, Cross Validation - Homework"
+author: "GROUP 4: Leonard Fidlin (h01352705), Daniel Jost (h01451889), Anne Valder (h11928415)"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 2
+    number_sections: false
+subtitle: Data Science and Machine Learning 2187 & 2087
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(include = TRUE)
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(error = TRUE)
+knitr::opts_chunk$set(fig.align = 'center')
+```
+
+# Classification Tree with the Voting Input data
+Data contains prospective voting decisions in the 2017 parliamentary election in Austria as well as a set of predictors which are other questions from the survey
+
+Install and load the required packages.
+```{r echo=T, message=FALSE, error=FALSE, warning=FALSE}
+
+# Später schauen ob wir alle aus der VL brauchen !  DJ: Parsimony us key  !
+
+library(rpart)
+library(rpart.plot) 
+library(precrec)
+library(caret)       # funktioniert beir mir nicht  DJ: bei mir schon
+library(party)
+library(MLmetrics)   # brauchen wir für Caret
+library(libcoin)     # noch dazu ?
+
+library(tidyverse)
+library(vcd)
+library(RColorBrewer)
+library(viridis)
+library(knitr)
+library(tinytex)
+library(glmnet)     # funktioniert bei mir nicht  DJ: bei mir schon
+
+# Set wd to path to the data
+data_path = "."
+
+voting <- read_delim(file.path(data_path, "voting.csv"), ";", 
+                      escape_double = FALSE, col_types = cols(age = col_number()), 
+                      locale = locale(decimal_mark = ",", grouping_mark = "."), trim_ws = TRUE)
+
+# Change Vote to a factor
+voting <- voting %>% mutate(vote = as.factor(w1_q24))
+
+# Changing the Gender Variable and removing "wrong" survey entries in the used Variables
+
+# Dieser Schritt ist von Julian und macht auch eigentlich Sinn, da seltsam ausgefüllte Antworten mit 99 oder 88 gekennzeichnet wurden und damit diese nicht ein so hohe Gewichtung bekommen entferne ich sie hier, aber das Ergebnis sieht dann leider ganz anders aus als aus der Vorlesung :/
+
+# voting <- voting %>% mutate(gen = as.factor(gender),
+#                            female = recode(gender, "Male" = 0, "Female" = 1),
+#                            left_right = replace(w1_q12, w1_q12 > 10, NA),
+#                            gov_sat = replace(w1_q7, w1_q7 > 5, NA),
+#                            financ = replace(w1_q4, w1_q4 > 5, NA),
+#                            close_eu = replace(w1_q8x4, w1_q8x4 > 5, NA),
+#                            migration_pos = replace(w1_q10x2, w1_q10x2 > 5, NA),
+#                            polit_trust = replace(w1_q19x3, w1_q19x3 > 5, NA),
+#                            migration_neg = replace(w1_q17x3, w1_q17x3 > 5, NA))
+
+# Changing the names
+voting <- voting %>%
+  rename("top_issue1" = w1_q2_level1,
+         "relig" = w1_sd15r,
+         "educ" = w1_sd6,
+         "income" = w1_sd7,
+         "left_right" = w1_q12,
+         "gov_sat" = w1_q7,
+         "financ" = w1_q4,
+         "close_eu" = w1_q8x4,
+         "migration_pos" = w1_q10x2,
+         "polit_trust" = w1_q19x3,
+         "migration_neg" = w1_q17x3)
+```
+
+# **Task 1** Classification tree using cross validation
+Estimate a classification tree using cross validation predicting the variable $w1_q24$ which is the prospective party choice. 
+
+```{r }
+# manuell und wenn ja welche model specification oder mit caret??? - So wie es ist, ist es ohne CV??? 
+set.seed(1312)
+
+# Seperate the voting data set into test and training data
+voting <- voting %>%
+  mutate(train_index = sample(c("train", "test"), nrow(voting), replace=TRUE, prob=c(0.80, 0.20)))
+
+train <- voting %>% filter(train_index=="train")
+test <- voting %>% filter(train_index=="test")
+
+# The question here should be whether we are pre-pruning or post-pruning 'formula' is a rather simple model while 'FORMULA' is a bit more complex but far away from representing all the 63 possible variables. My computer is not capable of using all the variables, the ones included in 'FORMULA'  are already close to the maximum my PC can handle. I have removed some, because they did not change anything in the outcome. The resulting tree in 'tree_caret' looks very similar to the one presented in the Lecture!
+
+# DJ: würde mal auf meinem PC probieren es mit allen variablen zu machen (wenn ich iweder in Wien bin)
+
+# For simplicity use formula for estimation
+formula <- vote ~ gender + age + close_eu + left_right + migration_neg
+
+# The inclusion of the Educ Variable is quite questionable at this point ^^
+FORMULA <- vote ~ gender + age + top_issue1 + financ + polit_trust + gov_sat + close_eu + income + left_right + migration_neg + migration_pos + relig
+
+tree <- rpart(formula, data = train, cp=.01) # cp (complexity) is the tuning parameter, named differently in different pkgs, 0 < cp < 1)
+tree
+# summary(tree)
+
+TREE <- rpart(FORMULA, data = train, cp=.01)
+TREE
+```
+
+
+## Extension with caret and CV
+
+When running this algorithm we get that the optimal cp = .007 / .006. However, after running the control estimate we can no longer also generate the Confusion Matrix due to some Variable missing. Not so sure yet how to solve it. 
+
+```{r}
+control <- trainControl(method = "repeatedcv", number = 10, repeats = 10, savePredictions = T, classProbs = T, summaryFunction = multiClassSummary)
+control
+summary(control)
+```
+
+Tuning Grid
+```{r}
+tuning_grid <- expand.grid(cp = seq(0.001, 0.01, by= 0.001))
+tuning_grid
+```
+
+Tree tuned with Caret, we get a similar tree to the one on the slides
+```{r}
+TREE_caret <- train(data = voting, FORMULA, method = "rpart", trControl = control, tuneGrid = tuning_grid, metric = "ROC", na.action = na.pass)
+TREE_caret
+
+TREE_caret <- TREE_caret$finalModel
+
+# The caret method tells us that we should use cp = 0.006 for estimation.
+```
+
+I expected it too look like the one we got from Caret but it does not
+
+```{r}
+TREE2 <- rpart(FORMULA, data = train, cp=.006)
+TREE2
+```
+
+? Which is the model with the best performance ?
+
+
+# **Task 2** Tree graph
+Plot a tree graph of the model with the best performance. Explain how you come to your prediction in one of the terminal nodes.
+
+Vote overview
+```{r}
+table(voting$vote)
+```
+
+Colour palette for possible party outcomes
+```{r}
+party <- list("lightblue", "lightgreen", "turquoise", "pink")
+```
+
+```{r}
+# Tree plot Formula
+rpart.plot(tree, box.palette=party, nn=FALSE, type=2)
+
+# Tree plot more variables FORMULA
+rpart.plot(TREE, box.palette=party, nn=FALSE, type=2)
+
+# Tree plot, CV Caret Tree, many variables FORMULA
+rpart.plot(TREE_caret, box.palette=party, nn=FALSE, type=2)    # DJ: exactly like the graph on the slides so I'd say we remove everything except TREE_caret?
+
+# Tree plot, Rpart with the new CP
+rpart.plot(TREE2, box.palette=party, nn=FALSE, type=2)
+
+```
+
+# **Task 3** Confusion matrix
+Make a confusion matrix of the model and interpret the results.
+
+Confusion matrix for tree (##
+```{r}
+train$prediction_tree <- predict(tree, newdata = train, type = "class")
+confusion <- confusionMatrix(train$vote, train$prediction_tree, positive = "ÖVP", mode = "sens_spec")
+confusion
+```
+
+Confusion matrix for TREE (test data)
+```{r}
+test$predict_TREE <- predict(TREE, newdata = test, type = "class")
+CONFUSION <- confusionMatrix(test$vote, test$predict_TREE)
+CONFUSION
+```
+
+Confusion Matrix for TREE2
+```{r}
+test$predict_TREE2_test <- predict(TREE2, newdata = test, type = "class")
+CONFUSION2_test <- confusionMatrix(test$vote , test$predict_TREE2)
+CONFUSION2_test
+```
+
+Confusion Matrix for TREE_caret - does not work because of the Tree Caret issue
+```{r}
+test$predict_TREE_caret <- predict(TREE_caret, newdata = test, type = "class")
+# ERROR Error in eval(predvars, data, env) : object 'genderMale' not found  :-(
+CONFUSION3 <- confusionMatrix(test$vote, predict_TREE_caret)
+CONFUSION3
+```
+
+
+## **3.1** Sensitivity
+**Regarding which two categories do you find the highest and lowest sensitivity?**
+Prediction `test$predict_TREE2` has very low accuracy, we have the highest sensitivity for a vote outcome for FPÖ and the highest specicivity for "Other".
+
+## **3.2** Predictive performance
+**How well would you judge the predictive performance of the model?**
+The predictive performance of the model is not very good!
+
+## **3.3** Naive prediction
+**What would be the "naive prediction" in such a multiclass prediction problem?**
+The naive prediction is that ÖVP would win
+
+# **Task 4** Large model
+**Estimate the model across a wide range of parameters of the model and plot the accuracy in the training and in the test data against the parameters. What can you see? what problem does this relate to?**
+
+```{r}
+# Both have same Level but can not run the confusion matrix, weird
+logit <- glm(FORMULA, 
+             data = train, family = "binomial")
+
+test$prediction_logit <- predict(logit, newdata = test, type = "response")
+
+confusion <- confusionMatrix(test$vote, test$prediction_logit)
+confusion
+
+levels(test$prediction_logit)
+```
+
+# **Task 5** Simplified model
+**Simplify the model by only trying to predict if somebody voted for the ÖVP or not, re-estimate the model (again by using CV) as well as estimating a logit model in the training data utilizing whatever variables you find appropriate**
+
+Creating new hot one encoding (dummy variable) `vp` which is 1 for ÖVP and 0 otherwise
+```{r}
+voting$vp <-  
+  recode(voting$vote, "ÖVP" = 1, .default = 0)
+```
+
+New formula explaining `vp`
+```{r}
+FORMULA.vp <- vp ~ gender + age + top_issue1 + financ + polit_trust + gov_sat + close_eu + income + left_right + migration_neg + migration_pos + relig
+```
+
+Specifying how the samples should be split and type of CV. method = "repeatedcv" is k-fold cross validation (other options e.g. "LOOCV" or "LGOCV")
+```{r}
+control.vp <- trainControl(method = "LOOCV", number = 10, repeats = 10, savePredictions = T, summaryFunction = twoClassSummary, classProbs = TRUE)
+```
+
+Specifying the optimization metric and the method (using the same tuning grid as in **Task 1**)
+```{r} 
+# DJ: Versteh den error nicht :/
+TREE.vp <- train(data = voting, FORMULA.vp, method = "rpart", trControl = control.vp, tuneGrid = tuning_grid, metric = "ROC", na.action = na.pass)
+
+# ERROR train()'s use of ROC codes requires class probabilities. See the classProbs option of trainControl()
+# setting "classProbs = FALSE" in the trainControl() did not solve the error   :-(
+
+TREE.vp$finalModel
+```
+
+
+# **Task 6** Confusion matrix and ROC-curves
+**Compute the confusion matrix and ROC-curves for both models. Which one performs better and why? Where would you set the cut-off-point?** 
+
+Confusion matrix
+```{r}
+test$predict_TREE.vp <- predict(TREE.vp, newdata = test, type = "class")        # erstmal den error oben solven
+CONFUSION <- confusionMatrix(test$vote, test$predict_TREE)
+CONFUSION
+```
+
+ROC
+```{r}
+test$full_tree_scores <- predict(TREE_caret, test ,type = c("prob"))[,2]
+test$simple_tree_scores <- predict(TREE.vp, titanic_test ,type = c("response")) # erstmal den error oben solven
+
+precrec_obj <- evalmod(scores = cbind(test$full_tree_scores, test$simple_tree_scores), 
+                       labels = cbind(voting$vote, voting$vote), 
+                       modnames = c("full model","simple model"),
+                       raw_curves = FALSE, ties_method="first")
+autoplot(precrec_obj)
+```
+
+
+
+
+
